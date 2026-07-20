@@ -18,10 +18,11 @@ def start_processing(drill_id: str):
                 raise HTTPException(404, "Drill not found")
             drill.status = DrillStatus.PROCESSING.value
             db.commit()
+            video_key = drill.video_key
         finally:
             db.close()
 
-        video_path = os.path.join(VIDEOS_DIR, drill.video_key)
+        video_path = os.path.join(VIDEOS_DIR, video_key)
         if not os.path.exists(video_path):
             db = SessionLocal()
             try:
