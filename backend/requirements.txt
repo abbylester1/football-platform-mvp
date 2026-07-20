@@ -6,6 +6,7 @@ python-multipart
 aiofiles
 opencv-python-headless
 numpy
-ultralytics
 scipy
 trimesh
+onnxruntime
+onnx
