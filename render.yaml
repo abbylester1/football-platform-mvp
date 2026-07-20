@@ -4,7 +4,7 @@ services:
     runtime: python
     region: ohio
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python -c "import matplotlib; print('matplotlib cached')"
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --no-server-header
     healthCheckPath: /api/health
     envVars:
