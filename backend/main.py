@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.database import init_db
-from backend.router_uploads import router as upload_router
-from backend.router_drills import router as drill_router
-from backend.router_process import router as process_router
+from database import init_db
+from router_uploads import router as upload_router
+from router_drills import router as drill_router
+from router_process import router as process_router
 
 app = FastAPI(title="Football Drill MVP")
 
@@ -44,7 +44,7 @@ def debug():
         except Exception as e:
             info[mod] = f"missing: {e}"
     # Test ONNX model
-    from backend.config import YOLO_MODEL
+    from config import YOLO_MODEL
     info["model_exists"] = os.path.exists(YOLO_MODEL)
     info["model_path"] = YOLO_MODEL
     info["model_size"] = os.path.getsize(YOLO_MODEL) if os.path.exists(YOLO_MODEL) else 0

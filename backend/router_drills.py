@@ -1,9 +1,9 @@
 import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from backend.database import SessionLocal, Drill, DrillStatus
-from backend.models import DrillResponse, ObjectUpdate
-from backend.config import VIDEOS_DIR, SCENES_DIR
+from database import SessionLocal, Drill, DrillStatus
+from models import DrillResponse, ObjectUpdate
+from config import VIDEOS_DIR, SCENES_DIR
 
 router = APIRouter()
 

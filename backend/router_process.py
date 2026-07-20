@@ -3,15 +3,15 @@ import traceback
 import threading
 import logging
 from fastapi import APIRouter, HTTPException
-from backend.database import SessionLocal, Drill, DrillStatus
-from backend.config import VIDEOS_DIR
+from database import SessionLocal, Drill, DrillStatus
+from config import VIDEOS_DIR
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 def _run_processing(drill_id: str, video_path: str):
     try:
-        from backend.worker import process_drill_sync
+        from worker import process_drill_sync
         result = process_drill_sync(drill_id, video_path)
         db = SessionLocal()
         try:

@@ -2,8 +2,8 @@ import os
 import uuid
 import aiofiles
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from backend.config import VIDEOS_DIR, ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE
-from backend.database import SessionLocal, Drill, DrillStatus
+from config import VIDEOS_DIR, ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE
+from database import SessionLocal, Drill, DrillStatus
 router = APIRouter()
 
 @router.post("/upload")

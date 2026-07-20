@@ -2,7 +2,7 @@ import cv2
 import onnxruntime
 import numpy as np
 from typing import Optional, List, Dict
-from backend.config import YOLO_MODEL, DETECTION_CONFIDENCE
+from config import YOLO_MODEL, DETECTION_CONFIDENCE
 
 _session = None
 _input_name = None

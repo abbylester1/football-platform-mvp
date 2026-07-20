@@ -1,13 +1,13 @@
 import os
 import cv2
-from backend.config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL
-from backend.detection import detect_objects
-from backend.tracking import track_objects, reset_tracker
-from backend.projection import project_to_3d
-from backend.calibration import estimate_homography
-from backend.smoothing import smooth_trajectory
-from backend.animation import build_scene
-from backend.database import SessionLocal, Drill, DrillStatus
+from config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL
+from detection import detect_objects
+from tracking import track_objects, reset_tracker
+from projection import project_to_3d
+from calibration import estimate_homography
+from smoothing import smooth_trajectory
+from animation import build_scene
+from database import SessionLocal, Drill, DrillStatus
 
 
 def process_drill_sync(drill_id: str, video_path: str) -> str:
