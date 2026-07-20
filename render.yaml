@@ -9,6 +9,6 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: STORAGE_DIR
-        value: /data
+        value: /tmp/data
       - key: DATABASE_URL
-        value: sqlite:////data/football.db
+        value: sqlite:////tmp/data/football.db
