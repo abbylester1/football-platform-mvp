@@ -3,8 +3,8 @@
   "outputDirectory": "frontend/.next",
   "installCommand": "cd frontend && npm install",
   "functions": {
-    "api/**/*.py": {
-      "excludeFiles": "{backend/**,requirements.txt,pyproject.toml}"
+    "backend/**/*.py": {
+      "runtime": "disabled"
     }
   }
 }
