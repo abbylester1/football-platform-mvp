@@ -10,5 +10,3 @@ services:
     envVars:
       - key: STORAGE_DIR
         value: /tmp/data
-      - key: DATABASE_URL
-        value: sqlite:////tmp/data/football.db

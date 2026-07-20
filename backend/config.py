@@ -6,7 +6,7 @@ VIDEOS_DIR = os.environ.get("VIDEOS_DIR", os.path.join(STORAGE_DIR, "videos"))
 SCENES_DIR = os.environ.get("SCENES_DIR", os.path.join(STORAGE_DIR, "scenes"))
 AVATARS_DIR = os.environ.get("AVATARS_DIR", os.path.join(STORAGE_DIR, "avatars"))
 
-DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{os.path.join(STORAGE_DIR, 'football.db')}")
+DATABASE_URL = f"sqlite:///{os.path.join(STORAGE_DIR, 'football.db')}"
 
 MAX_UPLOAD_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
 ALLOWED_EXTENSIONS = {".mp4", ".mov"}
