@@ -57,4 +57,4 @@ async def upload_drill(
     finally:
         db.close()
 
-    return DrillResponse.model_validate(drill)
+    return drill
