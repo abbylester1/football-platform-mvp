@@ -26,3 +26,26 @@ def startup():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/api/debug")
+def debug():
+    import sys, os, platform
+    info = {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "cwd": os.getcwd(),
+        "files": os.listdir("."),
+        "backend_files": os.listdir("backend") if os.path.isdir("backend") else [],
+    }
+    for mod in ["cv2", "numpy", "onnxruntime", "scipy", "trimesh", "PIL"]:
+        try:
+            m = __import__(mod)
+            info[mod] = getattr(m, "__version__", "ok")
+        except Exception as e:
+            info[mod] = f"missing: {e}"
+    # Test ONNX model
+    from backend.config import YOLO_MODEL
+    info["model_exists"] = os.path.exists(YOLO_MODEL)
+    info["model_path"] = YOLO_MODEL
+    info["model_size"] = os.path.getsize(YOLO_MODEL) if os.path.exists(YOLO_MODEL) else 0
+    return info
