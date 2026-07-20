@@ -8,17 +8,27 @@ interface Drill {
 
 type Stage = 'idle' | 'uploading' | 'processing' | 'complete' | 'error';
 
+const frameIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><rect x="1.5" y="2" width="11" height="10" rx="1"/><path d="M5.5 5v4M8.5 5v4M1.5 6.5h11"/></svg>;
+const playerIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="4" r="1.8"/><path d="M3 12.5c0-2.2 1.8-4 4-4s4 1.8 4 4"/></svg>;
+const ballIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M2 4.5l4 1L7 2M10 9.5l-2.5-1.5L7 12"/><path d="M11 5l-3.5 1L7 2"/><path d="M12 9l-4 .5-1 3M2.5 9.5L7 9"/></svg>;
+const poseIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="2.5" r="1"/><path d="M7 4v3M7 7l-2 3M7 7l2 3M5 12l2-1.5L9 12"/></svg>;
+const motionIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M10 1.5A5.5 5.5 0 111 7"/><path d="M10 5V1.5H5.5"/></svg>;
+const sceneIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><rect x="1.5" y="2.5" width="5" height="4" rx="0.5"/><rect x="7.5" y="2.5" width="5" height="4" rx="0.5"/><rect x="1.5" y="7.5" width="5" height="4" rx="0.5"/><rect x="7.5" y="7.5" width="5" height="4" rx="0.5"/></svg>;
+
 const STEPS = [
-  { label: 'Extracting Frames', icon: '🎞️' },
-  { label: 'Detecting Players', icon: '👤' },
-  { label: 'Tracking Ball', icon: '⚽' },
-  { label: 'Estimating Pose', icon: '🧍' },
-  { label: 'Reconstructing Motion', icon: '🔄' },
-  { label: 'Building 3D Scene', icon: '🏗️' },
+  { label: 'Extracting Frames', icon: frameIcon },
+  { label: 'Detecting Players', icon: playerIcon },
+  { label: 'Tracking Ball', icon: ballIcon },
+  { label: 'Estimating Pose', icon: poseIcon },
+  { label: 'Reconstructing Motion', icon: motionIcon },
+  { label: 'Building 3D Scene', icon: sceneIcon },
 ];
 
-const CATEGORY_ICON: Record<string, string> = {
-  passing: '⚡', shooting: '🎯', movement: '🏃', possession: '🔄',
+const CATEGORY_ICON: Record<string, React.ReactNode> = {
+  passing: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M7 1v12M1 7h12"/><path d="M4.5 3.5l3-2.5 3 2.5"/><path d="M4.5 10.5l3 2.5 3-2.5"/></svg>,
+  shooting: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="7" r="5.5"/><circle cx="7" cy="7" r="1.5"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13"/></svg>,
+  movement: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="3.5" r="1.2"/><path d="M4.5 13l1.5-5 1 1 1-1 1.5 5"/><path d="M3 8l4-2 4 2"/></svg>,
+  possession: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M10 1.5A5.5 5.5 0 111 7"/><path d="M10 5V1.5H5.5"/></svg>,
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -217,8 +227,8 @@ export default function Home() {
                     <Link key={d.id} href={`/drill/${d.id}`}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-900/60 transition-all duration-200 group active:scale-[0.99]"
                     >
-                      <span className="w-7 h-7 rounded-lg bg-gray-900 flex items-center justify-center text-xs shrink-0 group-hover:bg-gray-800 transition-colors">
-                        {CATEGORY_ICON[d.category] || '⚽'}
+                      <span className="w-7 h-7 rounded-lg bg-gray-900 flex items-center justify-center shrink-0 group-hover:bg-gray-800 transition-colors">
+                        {CATEGORY_ICON[d.category] || <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M2 4.5l4 1L7 2M10 9.5l-2.5-1.5L7 12"/><path d="M11 5l-3.5 1L7 2"/><path d="M12 9l-4 .5-1 3M2.5 9.5L7 9"/></svg>}
                       </span>
                       <span className="text-sm truncate flex-1 group-hover:text-white transition-colors duration-200">
                         {d.name || 'Untitled'}
@@ -268,6 +278,9 @@ export default function Home() {
                       ) : (
                         <span className="w-5 h-5 rounded-full border border-gray-800" />
                       )}
+                      <span className={`w-4 h-4 ${i <= currentStep ? 'text-white' : 'text-gray-600'}`}>
+                        {step.icon}
+                      </span>
                       <span className={`transition-colors duration-300 ${i <= currentStep ? 'text-white' : 'text-gray-600'}`}>
                         {step.label}
                       </span>
@@ -279,10 +292,18 @@ export default function Home() {
 
               <div className="hidden md:flex items-center justify-center">
                 <div className="relative w-44 h-44">
-                  <div className="absolute inset-0 flex items-center justify-center opacity-[0.08] text-7xl">🎬</div>
-                  <div className="absolute inset-0 flex items-center justify-center opacity-20 text-5xl animate-step-visual">🏃</div>
-                  <div className="absolute inset-0 flex items-center justify-center opacity-[0.12] text-4xl animate-step-visual" style={{ animationDelay: '0.6s', marginTop: '-28px' }}>⚽</div>
-                  <div className="absolute inset-0 flex items-center justify-center text-3xl animate-step-visual" style={{ animationDelay: '1.2s', marginTop: '28px' }}>🧍</div>
+                  <div className="absolute inset-0 flex items-center justify-center opacity-[0.06]">
+                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round"><rect x="8" y="10" width="32" height="28" rx="2"/><path d="M18 16v16M30 16v16M8 24h32"/></svg>
+                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center opacity-20 animate-step-visual">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round"><circle cx="16" cy="10" r="4"/><path d="M6 28c0-5.5 4.5-10 10-10s10 4.5 10 10"/></svg>
+                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center opacity-[0.12] animate-step-visual" style={{ animationDelay: '0.6s', marginTop: '-28px' }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><path d="M4 8l6.5 1.5L12 4M17 16l-4-2.5L12 20"/><path d="M18.5 9l-5.5 1.5L12 4"/><path d="M20.5 15L14 16l-2 5M5 16.5L12 15"/></svg>
+                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center animate-step-visual" style={{ animationDelay: '1.2s', marginTop: '28px' }}>
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round"><circle cx="10" cy="4" r="1.5"/><path d="M10 6v4M10 10l-2.5 4M10 10l2.5 4M8 16l2-2 2 2"/></svg>
+                  </div>
                 </div>
               </div>
             </div>
