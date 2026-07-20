@@ -1,10 +1,5 @@
 {
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/.next",
-  "installCommand": "cd frontend && npm install",
-  "functions": {
-    "backend/**/*.py": {
-      "runtime": "disabled"
-    }
-  }
+  "installCommand": "cd frontend && npm install"
 }
