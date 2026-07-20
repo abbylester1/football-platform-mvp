@@ -4,11 +4,9 @@ import aiofiles
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from backend.config import VIDEOS_DIR, ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE
 from backend.database import SessionLocal, Drill, DrillStatus
-from backend.models import DrillResponse
-
 router = APIRouter()
 
-@router.post("/upload", response_model=DrillResponse)
+@router.post("/upload")
 async def upload_drill(
     name: str = Form(...),
     category: str = Form(""),
@@ -57,4 +55,17 @@ async def upload_drill(
     finally:
         db.close()
 
-    return drill
+    return {
+        "id": drill.id,
+        "name": drill.name,
+        "category": drill.category or "",
+        "age_group": drill.age_group or "",
+        "difficulty": drill.difficulty or "",
+        "description": drill.description or "",
+        "video_key": drill.video_key,
+        "status": drill.status,
+        "detected_objects": drill.detected_objects or [],
+        "scene_key": drill.scene_key or "",
+        "created_at": drill.created_at.isoformat() if drill.created_at else None,
+        "updated_at": drill.updated_at.isoformat() if drill.updated_at else None,
+    }
