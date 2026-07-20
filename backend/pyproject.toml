@@ -2,19 +2,19 @@
 name = "football-mvp-backend"
 version = "0.1.0"
 description = "Football Drill MVP - Backend API"
-requires-python = ">=3.12"
+requires-python = ">=3.9"
 dependencies = [
-    "fastapi==0.115.0",
-    "uvicorn[standard]==0.30.0",
-    "sqlalchemy==2.0.35",
-    "pydantic==2.9.0",
-    "python-multipart==0.0.9",
-    "aiofiles==25.1.0",
-    "opencv-python-headless==4.10.0.84",
-    "numpy==1.26.0",
-    "ultralytics==8.3.0",
-    "scipy==1.13.1",
-    "trimesh==4.4.0",
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy",
+    "pydantic",
+    "python-multipart",
+    "aiofiles",
+    "opencv-python-headless",
+    "numpy",
+    "ultralytics",
+    "scipy",
+    "trimesh",
 ]
 
 [tool.vercel]
