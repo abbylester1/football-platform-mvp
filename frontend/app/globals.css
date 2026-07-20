@@ -24,15 +24,26 @@
 
 @keyframes step-visual {
   0% { transform: translateY(0); opacity: 0.6; }
-  50% { transform: translateY(-4px); opacity: 1; }
+  50% { transform: translateY(-6px); opacity: 1; }
   100% { transform: translateY(0); opacity: 0.6; }
 }
 
-.animate-fade-up { animation: fade-up 0.4s ease-out; }
-.animate-scale-in { animation: scale-in 0.35s ease-out; }
-.animate-step-visual { animation: step-visual 1.5s ease-in-out infinite; }
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.06); }
+  50% { box-shadow: 0 0 0 12px rgba(255,255,255,0); }
+}
 
-@layer utilities {
-  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-  .scrollbar-hide::-webkit-scrollbar { display: none; }
+@keyframes progress-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.animate-fade-up { animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-scale-in { animation: scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-step-visual { animation: step-visual 1.8s ease-in-out infinite; }
+.animate-breathe { animation: breathe 2s ease-in-out infinite; }
+.animate-progress-pulse {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background-size: 200% 100%;
+  animation: progress-pulse 2s linear infinite;
 }

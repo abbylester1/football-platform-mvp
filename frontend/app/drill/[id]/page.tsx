@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Viewer3D from '@/components/Viewer3D';
@@ -32,12 +32,8 @@ export default function DrillPage() {
         setScene(d.detected_objects || []);
         setLoading(false);
       }).catch(() => {
-        if (retries < maxRetries) {
-          setRetries(r => r + 1);
-        } else {
-          setError('Could not load drill');
-          setLoading(false);
-        }
+        if (retries < maxRetries) setRetries(r => r + 1);
+        else { setError('Could not load drill'); setLoading(false); }
       });
     }, retries > 0 ? 2000 : 0);
     return () => { if (t) clearTimeout(t); };
@@ -52,8 +48,8 @@ export default function DrillPage() {
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950">
       <div className="text-center space-y-3">
-        <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-600 border-t-white mx-auto" />
-        <p className="text-xs text-gray-600">Loading drill{retries > 0 ? ` (attempt ${retries}/${maxRetries})` : ''}...</p>
+        <div className="animate-spin rounded-full h-4 w-4 border-[1.5px] border-gray-700 border-t-white mx-auto" />
+        <p className="text-xs text-gray-600">{retries > 0 ? `Loading${' .'.repeat(retries)}` : 'Loading drill'}</p>
       </div>
     </div>
   );
@@ -63,12 +59,12 @@ export default function DrillPage() {
       <p className="text-sm text-red-400">{error}</p>
       <div className="flex gap-3">
         <button onClick={() => { setError(''); setLoading(true); setRetries(0); }}
-          className="bg-white text-black font-medium px-5 py-2 rounded-xl text-sm hover:bg-gray-200 transition-all"
+          className="bg-white text-black font-medium px-5 py-2 rounded-xl text-sm hover:bg-gray-200 transition-all active:scale-[0.98]"
         >
           Retry
         </button>
         <Link href="/" className="text-sm text-gray-500 hover:text-white px-5 py-2 transition-colors">
-          Back to drills
+          Back
         </Link>
       </div>
     </div>
@@ -78,21 +74,29 @@ export default function DrillPage() {
   const totalFrames = Math.max(...scene.map(o => o.frames.length), 0);
   const durationSec = Math.round(totalFrames / 10);
 
+  const sidebarItems = [
+    { label: 'Category', value: drill?.category || '—' },
+    { label: 'Age', value: drill?.age_group || '—' },
+    { label: 'Difficulty', value: drill?.difficulty || '—' },
+    { label: 'Players', value: players || '—' },
+    { label: 'Duration', value: durationSec ? `${durationSec}s` : '—' },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
-      <div className="flex items-center h-12 px-4 border-b border-gray-800/50 gap-3 shrink-0">
-        <Link href="/" className="text-gray-600 hover:text-gray-300 transition-colors">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10 3L5 8l5 5"/></svg>
+      <div className="flex items-center h-11 px-4 border-b border-gray-800/40 gap-2 shrink-0">
+        <Link href="/" className="text-gray-600 hover:text-gray-300 transition-colors p-1 -ml-1">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M9 3L5 7l4 4"/></svg>
         </Link>
         <span className="text-sm font-medium truncate">{drill?.name || 'Drill'}</span>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5">
           <button onClick={() => setShowShare(!showShare)}
-            className="text-xs text-gray-500 hover:text-white px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors"
+            className="text-xs text-gray-500 hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-all"
           >
             Share
           </button>
           <a href={`/api/video/${drill?.video_key}`} download
-            className="text-xs text-gray-500 hover:text-white px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors"
+            className="text-xs text-gray-500 hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-all"
           >
             Download
           </a>
@@ -104,30 +108,16 @@ export default function DrillPage() {
           <Viewer3D objects={scene} />
         </div>
 
-        <div className="w-full lg:w-64 border-l border-gray-800/50 p-5 space-y-5 overflow-y-auto shrink-0">
-          <div>
-            <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-2">Category</p>
-            <p className="text-sm capitalize">{drill?.category || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-2">Age</p>
-            <p className="text-sm">{drill?.age_group || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-2">Difficulty</p>
-            <p className="text-sm capitalize">{drill?.difficulty || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-2">Players</p>
-            <p className="text-sm">{players || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-2">Duration</p>
-            <p className="text-sm">{durationSec ? `${durationSec} sec` : '—'}</p>
-          </div>
+        <div className="w-full lg:w-56 border-l border-gray-800/40 p-4 space-y-5 overflow-y-auto shrink-0">
+          {sidebarItems.map((item, i) => (
+            <div key={i}>
+              <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-1.5">{item.label}</p>
+              <p className="text-sm capitalize">{item.value}</p>
+            </div>
+          ))}
           {drill?.description && (
-            <div>
-              <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-2">Description</p>
+            <div className="pt-3 border-t border-gray-800/40">
+              <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-1.5">Description</p>
               <p className="text-sm text-gray-400 leading-relaxed">{drill.description}</p>
             </div>
           )}
@@ -136,24 +126,25 @@ export default function DrillPage() {
 
       {showShare && (
         <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowShare(false)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-gray-950 border border-gray-800 rounded-t-2xl w-full max-w-md p-6 animate-fade-up" onClick={e => e.stopPropagation()}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div className="relative bg-gray-950 border border-gray-800 rounded-t-2xl w-full max-w-sm p-5 animate-fade-up shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="w-8 h-1 rounded-full bg-gray-800 mx-auto mb-5" />
             <h3 className="text-sm font-medium mb-4">Share Drill</h3>
-            <div className="flex items-center gap-2 bg-gray-900 rounded-xl px-4 py-3 mb-4">
+            <div className="flex items-center gap-2 bg-gray-900 rounded-xl px-3.5 py-2.5 mb-4 border border-gray-800/50">
               <input readOnly value={typeof window !== 'undefined' ? window.location.href : ''}
-                className="bg-transparent text-sm flex-1 min-w-0 truncate focus:outline-none text-gray-400"
+                className="bg-transparent text-xs flex-1 min-w-0 truncate focus:outline-none text-gray-400"
               />
               <button onClick={copyLink}
-                className="text-xs text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                className="text-xs text-white bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg transition-all shrink-0 font-medium"
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <div className="space-y-2">
-              <button className="w-full bg-gray-900 hover:bg-gray-800 text-sm py-2.5 rounded-xl transition-colors">
+            <div className="space-y-1.5">
+              <button className="w-full bg-gray-900 hover:bg-gray-800 text-sm py-2.5 rounded-xl transition-all active:scale-[0.99]">
                 Export GLB
               </button>
-              <button className="w-full bg-gray-900 hover:bg-gray-800 text-sm py-2.5 rounded-xl transition-colors">
+              <button className="w-full bg-gray-900 hover:bg-gray-800 text-sm py-2.5 rounded-xl transition-all active:scale-[0.99]">
                 Download MP4 Preview
               </button>
             </div>

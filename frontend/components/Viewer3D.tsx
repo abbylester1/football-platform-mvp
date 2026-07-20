@@ -11,10 +11,32 @@ interface AnimData {
 
 function Field() {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
-      <planeGeometry args={[30, 20]} />
-      <meshStandardMaterial color="#2d5a3f" />
-    </mesh>
+    <group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
+        <planeGeometry args={[30, 20]} />
+        <meshStandardMaterial color="#2d5a3f" />
+      </mesh>
+      {/* Field markings */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
+        <planeGeometry args={[28, 18]} />
+        <meshBasicMaterial color="#3a7a4f" wireframe />
+      </mesh>
+      {/* Center line */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
+        <planeGeometry args={[0.04, 18]} />
+        <meshBasicMaterial color="white" opacity={0.3} transparent />
+      </mesh>
+      {/* Center circle */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
+        <ringGeometry args={[4.5, 4.54, 32]} />
+        <meshBasicMaterial color="white" opacity={0.3} transparent side={THREE.DoubleSide} />
+      </mesh>
+      {/* Center dot */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
+        <circleGeometry args={[0.2, 16]} />
+        <meshBasicMaterial color="white" opacity={0.3} transparent />
+      </mesh>
+    </group>
   );
 }
 
@@ -47,7 +69,7 @@ function Sphere({ position, color }: { position: [number, number, number]; color
   );
 }
 
-function Cone({ position }: { position: [number, number, number] }) {
+function ConeMesh({ position }: { position: [number, number, number] }) {
   return (
     <mesh position={position} castShadow>
       <coneGeometry args={[0.04, 0.12, 6]} />
@@ -92,7 +114,7 @@ function AnimatedObject({ data, color, playingRef, speedRef, timeRef, totalFrame
       ) : data.type === 'ball' ? (
         <Sphere position={[0, 0.1, 0]} color={baseColor} />
       ) : (
-        <Cone position={[0, 0.06, 0]} />
+        <ConeMesh position={[0, 0.06, 0]} />
       )}
     </group>
   );
@@ -103,17 +125,43 @@ function CameraController({ view }: { view: string }) {
   useEffect(() => {
     if (view === 'top') {
       camera.position.set(0, 20, 0.1);
-      camera.lookAt(0, 0, 0);
     } else if (view === 'player') {
       camera.position.set(0, 1.5, 8);
-      camera.lookAt(0, 0, 0);
     } else {
       camera.position.set(15, 12, 15);
-      camera.lookAt(0, 0, 0);
     }
+    camera.lookAt(0, 0, 0);
   }, [view, camera]);
   return null;
 }
+
+const IconPlay = () => <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><polygon points="2,1 10,6 2,11"/></svg>;
+const IconPause = () => <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="1.5" width="2.5" height="9" rx="0.5"/><rect x="7" y="1.5" width="2.5" height="9" rx="0.5"/></svg>;
+const IconFullscreen = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+    <path d="M2 4.5V2h2.5M10 4.5V2H7.5M2 7.5V10h2.5M10 7.5V10H7.5"/>
+  </svg>
+);
+const IconMinimize = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+    <path d="M4.5 2v2.5H2M7.5 2v2.5H10M4.5 10V7.5H2M7.5 10V7.5H10"/>
+  </svg>
+);
+const IconCamera = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="1.5" y="3" width="9" height="6.5" rx="1"/><circle cx="6" cy="6.5" r="2"/><path d="M8.5 3L9.5 1.5h-7L3.5 3"/>
+  </svg>
+);
+const IconTopView = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+    <circle cx="6" cy="6" r="4.5"/><path d="M6 1.5v9M1.5 6h9"/>
+  </svg>
+);
+const IconReset = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1.5 6.5a4.5 4.5 0 108-2.8"/><polyline points="4.5 2 9.5 2 9.5 3.7"/><path d="M9.5 2l-2.5 3"/>
+  </svg>
+);
 
 export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; sceneUrl?: string }) {
   const [playing, setPlaying] = useState(true);
@@ -121,7 +169,6 @@ export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; s
   const [currentTime, setCurrentTime] = useState(0);
   const [totalFrames, setTotalFrames] = useState(1);
   const [cameraView, setCameraView] = useState('default');
-  const [seeking, setSeeking] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -130,13 +177,8 @@ export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; s
   const timeRef = useRef(0);
   const totalFramesRef = useRef(1);
 
-  useEffect(() => {
-    playingRef.current = playing;
-  }, [playing]);
-
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
+  useEffect(() => { playingRef.current = playing; }, [playing]);
+  useEffect(() => { speedRef.current = speed; }, [speed]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -174,9 +216,10 @@ export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; s
 
   const durationSec = totalFrames > 0 ? Math.round(totalFrames / 10) : 0;
   const currentSec = Math.round(currentTime / 10);
+  const progress = totalFrames > 0 ? (currentTime / totalFrames) * 100 : 0;
 
   return (
-    <div ref={containerRef} className={`relative bg-gray-900 rounded-xl overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'w-full h-[65vh]'}`}>
+    <div ref={containerRef} className={`relative bg-gray-900 overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50' : 'w-full h-[65vh] rounded-xl'}`}>
       <Canvas camera={{ position: [15, 12, 15], fov: 50 }}>
         <ambientLight intensity={0.5} />
         <directionalLight position={[10, 15, 10]} intensity={0.8} castShadow />
@@ -189,63 +232,56 @@ export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; s
         <CameraController view={cameraView} />
       </Canvas>
 
-      {/* Bottom Timeline */}
-      <div className="absolute bottom-0 left-0 right-0 px-5 pb-4 pt-10 bg-gradient-to-t from-black/80 to-transparent">
-        <div className="flex items-center gap-3 mb-2">
-          <button onClick={togglePlay} className="text-white hover:text-gray-300 transition-colors">
-            {playing ? (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="3" y="2" width="3" height="10" rx="0.5"/><rect x="8" y="2" width="3" height="10" rx="0.5"/></svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><polygon points="3,2 12,7 3,12"/></svg>
-            )}
+      {/* Bottom bar */}
+      <div className="absolute bottom-0 left-0 right-0 px-4 pb-3 pt-8 bg-gradient-to-t from-black/80 to-transparent">
+        <div className="flex items-center gap-2.5">
+          <button onClick={togglePlay}
+            className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all active:scale-90 text-white"
+          >
+            {playing ? <IconPause /> : <IconPlay />}
           </button>
-          <div className="flex gap-1">
+
+          <div className="flex gap-0.5">
             {[0.5, 1, 2].map(s => (
               <button key={s} onClick={() => setSpeed(s)}
-                className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${speed === s ? 'bg-white/20 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md transition-all ${
+                  speed === s ? 'bg-white/20 text-white' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                }`}
               >{s}x</button>
             ))}
           </div>
-          <div className="flex-1 relative h-5 cursor-pointer group" onMouseDown={handleSeek}>
-            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-0.5 bg-gray-700 rounded group-hover:h-1 transition-all">
-              <div className="h-full bg-white rounded" style={{ width: `${totalFrames > 0 ? (currentTime / totalFrames) * 100 : 0}%` }} />
+
+          <div className="flex-1 relative h-4 cursor-pointer group py-1" onMouseDown={handleSeek}>
+            <div className="h-0.5 bg-gray-700 rounded-full group-hover:h-1 transition-all duration-200 relative top-1/2 -translate-y-1/2">
+              <div className="h-full bg-white rounded-full" style={{ width: `${progress}%` }} />
             </div>
-            <div className="absolute top-1/2 -translate-y-1/2" style={{ left: `${totalFrames > 0 ? (currentTime / totalFrames) * 100 : 0}%` }}>
-              <div className="w-3 h-3 rounded-full bg-white -ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
+            <div className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white -ml-1.25 opacity-0 group-hover:opacity-100 transition-opacity duration-200 shadow-lg"
+              style={{ left: `${progress}%` }}
+            />
           </div>
-          <span className="text-[11px] text-gray-400 tabular-nums w-16 text-right">
-            {String(currentSec).padStart(2, '0')}:{String(Math.floor((currentTime % 10) * 10)).padStart(2, '0')} / {String(durationSec).padStart(2, '0')}:00
+
+          <span className="text-[10px] text-gray-500 tabular-nums font-medium">
+            {String(currentSec).padStart(2, '0')}:{String(Math.floor((currentTime % 10) * 6)).padStart(2, '0')} / {String(durationSec).padStart(2, '0')}:00
           </span>
         </div>
       </div>
 
-      {/* Right Floating Controls */}
-      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
-        <button onClick={toggleFullscreen}
-          className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors text-gray-400 hover:text-white"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            {isFullscreen ? (
-              <><path d="M3 3h2v2M11 3h-2v2M3 11h2v-2M11 11h-2v-2"/></>
-            ) : (
-              <><path d="M3 3h2v2M11 3h-2v2M3 11h2v-2M11 11h-2v-2"/></>
-            )}
-          </svg>
-        </button>
-        <button onClick={() => setCameraView(v => v === 'player' ? 'default' : 'player')}
-          className={`w-9 h-9 rounded-full backdrop-blur-sm flex items-center justify-center transition-colors text-xs ${
-            cameraView === 'player' ? 'bg-white/20 text-white' : 'bg-black/50 text-gray-400 hover:bg-black/70 hover:text-white'
-          }`}
-        >🎥</button>
-        <button onClick={() => setCameraView(v => v === 'top' ? 'default' : 'top')}
-          className={`w-9 h-9 rounded-full backdrop-blur-sm flex items-center justify-center transition-colors text-xs ${
-            cameraView === 'top' ? 'bg-white/20 text-white' : 'bg-black/50 text-gray-400 hover:bg-black/70 hover:text-white'
-          }`}
-        >🛰</button>
-        <button onClick={() => setCameraView('default')}
-          className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors text-gray-400 hover:text-white text-xs"
-        >🧭</button>
+      {/* Right controls */}
+      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-1.5">
+        {[
+          { label: 'Fullscreen', icon: isFullscreen ? <IconMinimize /> : <IconFullscreen />, onClick: toggleFullscreen, active: false },
+          { label: 'Player view', icon: <IconCamera />, onClick: () => setCameraView(v => v === 'player' ? 'default' : 'player'), active: cameraView === 'player' },
+          { label: 'Top view', icon: <IconTopView />, onClick: () => setCameraView(v => v === 'top' ? 'default' : 'top'), active: cameraView === 'top' },
+          { label: 'Reset camera', icon: <IconReset />, onClick: () => setCameraView('default'), active: false },
+        ].map((b, i) => (
+          <button key={i} onClick={b.onClick} title={b.label}
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 ${
+              b.active ? 'bg-white/20 text-white' : 'bg-black/40 text-gray-400 hover:bg-black/60 hover:text-white'
+            }`}
+          >
+            {b.icon}
+          </button>
+        ))}
       </div>
     </div>
   );
