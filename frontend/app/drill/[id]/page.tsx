@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Viewer3D from '@/components/Viewer3D';
@@ -15,19 +15,33 @@ export default function DrillPage() {
   const [scene, setScene] = useState<AnimData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [retries, setRetries] = useState(0);
   const [showShare, setShowShare] = useState(false);
   const [copied, setCopied] = useState(false);
+  const maxRetries = 5;
 
   useEffect(() => {
-    fetch(`/api/drills/${id}`).then(r => {
-      if (!r.ok) throw new Error('Not found');
-      return r.json();
-    }).then(d => {
-      setDrill(d);
-      setScene(d.detected_objects || []);
-    }).catch(() => setError('Could not load drill'))
-    .finally(() => setLoading(false));
-  }, [id]);
+    if (retries > maxRetries) return;
+    const timer = retries > 0 ? setTimeout : (fn: () => void) => { fn(); return undefined; };
+    const t = timer(() => {
+      fetch(`/api/drills/${id}`).then(r => {
+        if (!r.ok) throw new Error('Not found');
+        return r.json();
+      }).then(d => {
+        setDrill(d);
+        setScene(d.detected_objects || []);
+        setLoading(false);
+      }).catch(() => {
+        if (retries < maxRetries) {
+          setRetries(r => r + 1);
+        } else {
+          setError('Could not load drill');
+          setLoading(false);
+        }
+      });
+    }, retries > 0 ? 2000 : 0);
+    return () => { if (t) clearTimeout(t); };
+  }, [id, retries, maxRetries]);
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(window.location.href);
@@ -37,14 +51,26 @@ export default function DrillPage() {
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950">
-      <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-600 border-t-white" />
+      <div className="text-center space-y-3">
+        <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-600 border-t-white mx-auto" />
+        <p className="text-xs text-gray-600">Loading drill{retries > 0 ? ` (attempt ${retries}/${maxRetries})` : ''}...</p>
+      </div>
     </div>
   );
 
   if (error) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-950 gap-4">
       <p className="text-sm text-red-400">{error}</p>
-      <Link href="/" className="text-sm text-gray-500 hover:text-white transition-colors">&larr; Back</Link>
+      <div className="flex gap-3">
+        <button onClick={() => { setError(''); setLoading(true); setRetries(0); }}
+          className="bg-white text-black font-medium px-5 py-2 rounded-xl text-sm hover:bg-gray-200 transition-all"
+        >
+          Retry
+        </button>
+        <Link href="/" className="text-sm text-gray-500 hover:text-white px-5 py-2 transition-colors">
+          Back to drills
+        </Link>
+      </div>
     </div>
   );
 
@@ -54,7 +80,6 @@ export default function DrillPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
-      {/* Top bar */}
       <div className="flex items-center h-12 px-4 border-b border-gray-800/50 gap-3 shrink-0">
         <Link href="/" className="text-gray-600 hover:text-gray-300 transition-colors">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10 3L5 8l5 5"/></svg>
@@ -74,14 +99,11 @@ export default function DrillPage() {
         </div>
       </div>
 
-      {/* Main layout */}
       <div className="flex-1 flex flex-col lg:flex-row">
-        {/* 3D Viewer */}
         <div className="flex-1 min-h-0">
           <Viewer3D objects={scene} />
         </div>
 
-        {/* Sidebar */}
         <div className="w-full lg:w-64 border-l border-gray-800/50 p-5 space-y-5 overflow-y-auto shrink-0">
           <div>
             <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-2">Category</p>
@@ -112,7 +134,6 @@ export default function DrillPage() {
         </div>
       </div>
 
-      {/* Share drawer */}
       {showShare && (
         <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowShare(false)}>
           <div className="absolute inset-0 bg-black/40" />

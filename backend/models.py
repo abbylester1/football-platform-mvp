@@ -24,6 +24,8 @@ class DrillCreate(BaseModel):
     description: str = ""
 
 class DrillResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
     id: str
     name: str
     category: str

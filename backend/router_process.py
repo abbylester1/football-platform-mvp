@@ -1,11 +1,12 @@
 import os
-import json
 import traceback
 import threading
+import logging
 from fastapi import APIRouter, HTTPException
 from backend.database import SessionLocal, Drill, DrillStatus
-from backend.config import VIDEOS_DIR, SCENES_DIR
+from backend.config import VIDEOS_DIR
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 def _run_processing(drill_id: str, video_path: str):
@@ -21,15 +22,19 @@ def _run_processing(drill_id: str, video_path: str):
                 db.commit()
         finally:
             db.close()
-    except BaseException as e:
-        db = SessionLocal()
+    except Exception:
+        logger.error(f"Processing failed for drill {drill_id}: {traceback.format_exc()}")
         try:
-            drill = db.query(Drill).filter(Drill.id == drill_id).first()
-            if drill:
-                drill.status = DrillStatus.FAILED.value
-                db.commit()
-        finally:
-            db.close()
+            db = SessionLocal()
+            try:
+                drill = db.query(Drill).filter(Drill.id == drill_id).first()
+                if drill:
+                    drill.status = DrillStatus.FAILED.value
+                    db.commit()
+            finally:
+                db.close()
+        except Exception:
+            logger.error(f"Failed to update drill {drill_id} to FAILED status: {traceback.format_exc()}")
 
 @router.post("/process/{drill_id}")
 def start_processing(drill_id: str):
