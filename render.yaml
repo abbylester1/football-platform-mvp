@@ -5,8 +5,12 @@ services:
     region: ohio
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --no-server-header
     healthCheckPath: /api/health
     envVars:
       - key: STORAGE_DIR
         value: /tmp/data
+      - key: MPLBACKEND
+        value: Agg
+      - key: YOLO_CONFIG_DIR
+        value: /tmp/Ultralytics
