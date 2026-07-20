@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 import enum
 import uuid
 
-from backend.config import DATABASE_URL
+import os
+from backend.config import DATABASE_URL, STORAGE_DIR, VIDEOS_DIR, SCENES_DIR
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
@@ -34,5 +35,8 @@ class Drill(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 def init_db():
+    os.makedirs(STORAGE_DIR, exist_ok=True)
+    os.makedirs(VIDEOS_DIR, exist_ok=True)
+    os.makedirs(SCENES_DIR, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     return SessionLocal()
