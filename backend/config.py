@@ -1,6 +1,6 @@
 import os
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STORAGE_DIR = os.environ.get("STORAGE_DIR", os.path.join(BASE_DIR, "data"))
 VIDEOS_DIR = os.environ.get("VIDEOS_DIR", os.path.join(STORAGE_DIR, "videos"))
 SCENES_DIR = os.environ.get("SCENES_DIR", os.path.join(STORAGE_DIR, "scenes"))

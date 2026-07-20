@@ -6,6 +6,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-ENV STORAGE_DIR=/data
-RUN mkdir -p /data
+RUN mkdir -p /data && \
+    apt-get install -y --no-install-recommends wget ca-certificates && \
+    wget -q https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx -O /app/yolo11n.onnx && \
+    apt-get remove -y wget && rm -rf /var/lib/apt/lists/*
+ENV STORAGE_DIR=/data YOLO_MODEL=/app/yolo11n.onnx
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
