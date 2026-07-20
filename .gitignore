@@ -1,0 +1,12 @@
+node_modules/
+.next/
+*.pyc
+__pycache__/
+data/
+*.db
+.agents/
+.pytest_cache/
+.superpowers/
+.next/
+
+.vercel
