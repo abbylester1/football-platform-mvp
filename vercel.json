@@ -1,5 +1,10 @@
 {
-  "rootDirectory": "frontend",
-  "buildCommand": "npm install && npm run build",
-  "outputDirectory": ".next"
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/.next",
+  "installCommand": "cd frontend && npm install",
+  "functions": {
+    "api/**/*.py": {
+      "excludeFiles": "{backend/**,requirements.txt,pyproject.toml}"
+    }
+  }
 }
