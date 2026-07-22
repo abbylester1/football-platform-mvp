@@ -15,6 +15,7 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
+MODULE_VERSION = "v2-reset-and-debug"
 router = APIRouter()
 
 
