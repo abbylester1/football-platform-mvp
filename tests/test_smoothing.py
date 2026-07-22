@@ -1,6 +1,8 @@
 import pytest
 import numpy as np
-from backend.smoothing import smooth_trajectory
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+from smoothing import smooth_trajectory
 
 def test_smooth_trajectory_reduces_jitter():
     noisy = [(float(i), 0.0, float(i) + (1.0 if i % 2 == 0 else -1.0)) for i in range(20)]

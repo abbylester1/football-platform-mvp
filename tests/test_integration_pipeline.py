@@ -5,15 +5,17 @@ import os
 import json
 import tempfile
 import shutil
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
-from backend.tracking import track_objects, reset_tracker
-from backend.calibration import estimate_homography
-from backend.projection import project_to_3d
-from backend.smoothing import smooth_trajectory
-from backend.animation import build_scene, AVATAR_MAP, _create_avatar_mesh, _select_avatar
-from backend.config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL, ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE
-from backend.models import DetectedObject, FramePosition, DrillResponse, ObjectUpdate
-from backend.database import Drill, DrillStatus
+from tracking import track_objects, reset_tracker
+from calibration import estimate_homography, detect_cones_in_frame
+from projection import project_to_3d
+from smoothing import smooth_trajectory
+from animation import build_scene, AVATAR_MAP, _create_avatar_mesh, _select_avatar
+from config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL, ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE
+from models import DetectedObject, FramePosition, DrillResponse, ObjectUpdate
+from database import Drill, DrillStatus
 
 
 SAMPLE_BBOX = [100, 50, 180, 200]
@@ -102,7 +104,7 @@ class TestProjection3D:
     def test_projection_with_homography(self):
         cones = [(0, 0), (100, 0), (100, 100), (0, 100)]
         H = estimate_homography(cones)
-        x, y, z = project_to_3d(SAMPLE_CENTER_X, SAMPLE_CENTER_Y, H)
+        x, y, z = project_to_3d(SAMPLE_CENTER_X, SAMPLE_CENTER_Y, H, 640, 480)
         assert isinstance(x, float)
         assert isinstance(z, float)
         assert y == 0.0
@@ -110,7 +112,7 @@ class TestProjection3D:
         assert np.isfinite(z)
 
     def test_projection_without_homography(self):
-        x, y, z = project_to_3d(SAMPLE_CENTER_X, SAMPLE_CENTER_Y, None)
+        x, y, z = project_to_3d(SAMPLE_CENTER_X, SAMPLE_CENTER_Y, None, 640, 480)
         assert y == 0.0
         assert -15 <= x <= 15
         assert 0 <= z <= 18
@@ -118,9 +120,34 @@ class TestProjection3D:
     def test_projection_consistency(self):
         cones = [(0, 0), (100, 0), (100, 100), (0, 100)]
         H = estimate_homography(cones)
-        r1 = project_to_3d(50, 50, H)
-        r2 = project_to_3d(50, 50, H)
+        r1 = project_to_3d(50, 50, H, 640, 480)
+        r2 = project_to_3d(50, 50, H, 640, 480)
         assert r1 == r2
+
+
+class TestConeDetection:
+    def test_detect_cones_in_frame_returns_list(self):
+        img = np.zeros((480, 640, 3), dtype=np.uint8)
+        assert detect_cones_in_frame(img) == []
+
+    def test_detect_cones_finds_orange_blob(self):
+        img = np.zeros((200, 300, 3), dtype=np.uint8)
+        img[40:80, 50:90] = (0, 100, 255)
+        cones = detect_cones_in_frame(img, min_area=10, max_area=50000)
+        assert len(cones) >= 1
+        x1, y1, x2, y2 = cones[0]
+        assert x1 < x2
+        assert y1 < y2
+        assert 40 <= y1 <= 80
+        assert 50 <= x1 <= 90
+
+    def test_detect_cones_area_filter(self):
+        img = np.zeros((200, 300, 3), dtype=np.uint8)
+        img[90:110, 130:170] = (0, 100, 255)
+        cones_low = detect_cones_in_frame(img, min_area=5000, max_area=50000)
+        assert cones_low == []
+        cones_ok = detect_cones_in_frame(img, min_area=10, max_area=50000)
+        assert len(cones_ok) >= 1
 
 
 class TestSmoothing:

@@ -1,10 +1,10 @@
 import os
 import cv2
 from config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL
-from detection import detect_objects
+from detection import detect_objects, read_jersey_number, reset_motion_detector
 from tracking import track_objects, reset_tracker
 from projection import project_to_3d
-from calibration import estimate_homography
+from calibration import estimate_homography, detect_cones_in_frame
 from smoothing import smooth_trajectory
 from animation import build_scene
 from database import SessionLocal, Drill, DrillStatus
@@ -13,9 +13,13 @@ from database import SessionLocal, Drill, DrillStatus
 def process_drill_sync(drill_id: str, video_path: str) -> str:
     cap = cv2.VideoCapture(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     frame_count = 0
     all_detections = []
+    all_cone_bboxes: list[tuple[float, float, float, float]] = []
     reset_tracker()
+    reset_motion_detector()
 
     while True:
         ret, frame = cap.read()
@@ -37,6 +41,15 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
 
         all_detections.extend(tracked)
 
+        for obj in tracked:
+            if obj["type"] == "player" and "label" not in obj:
+                number = read_jersey_number(frame, obj["bbox"])
+                if number:
+                    obj["label"] = number
+
+        cones = detect_cones_in_frame(frame)
+        all_cone_bboxes.extend(cones)
+
     cap.release()
 
     objects_by_id: dict[int, list] = {}
@@ -51,6 +64,10 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         if dets[0]["type"] == "cone":
             cone_positions_2d.extend([d["center"] for d in dets])
 
+    if not cone_positions_2d and all_cone_bboxes:
+        for x1, y1, x2, y2 in all_cone_bboxes:
+            cone_positions_2d.append(((x1 + x2) / 2, (y1 + y2) / 2))
+
     homography = None
     if len(cone_positions_2d) >= 4:
         homography = estimate_homography(cone_positions_2d[:4])
@@ -62,7 +79,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         frames = []
         for det in dets:
             cx, cy = det["center"]
-            x3d, y3d, z3d = project_to_3d(cx, cy, homography)
+            x3d, y3d, z3d = project_to_3d(cx, cy, homography, frame_width, frame_height)
             frames.append({
                 "frame": det["frame_idx"],
                 "x": float(x3d),
@@ -78,7 +95,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         detected_objects_list.append({
             "type": obj_type,
             "id": f"{obj_type}_{tid}",
-            "label": label,
+            "label": label if obj_type != "player" else dets[0].get("label", label),
             "frames": frames,
         })
 

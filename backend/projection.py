@@ -5,8 +5,8 @@ def project_to_3d(
     x: float,
     y: float,
     homography,
-    frame_width: int = 640,
-    frame_height: int = 480,
+    frame_width: int,
+    frame_height: int,
     field_scale: float = 30.0,
 ):
     if homography is not None:

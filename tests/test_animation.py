@@ -1,7 +1,9 @@
 import pytest
 import os
 import tempfile
-from backend.animation import build_scene
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+from animation import build_scene
 
 def test_build_scene_returns_glb_path():
     objects = [

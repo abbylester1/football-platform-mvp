@@ -1,5 +1,7 @@
 import pytest
-from backend.tracking import track_objects, reset_tracker
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+from tracking import track_objects, reset_tracker
 
 @pytest.fixture(autouse=True)
 def reset_tracking():

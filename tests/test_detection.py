@@ -1,6 +1,8 @@
 import pytest
 import numpy as np
-from backend.detection import detect_objects
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+from detection import detect_objects
 
 def test_detect_objects_returns_list():
     dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
