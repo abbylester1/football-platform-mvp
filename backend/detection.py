@@ -4,7 +4,22 @@ import onnxruntime
 import numpy as np
 from typing import Optional, List, Dict
 from config import YOLO_MODEL, DETECTION_CONFIDENCE
-from pose_estimation import extract_pose_keypoints
+
+# Lazy import to handle environments where pose_estimation might fail
+_extract_pose_keypoints = None
+
+
+def _get_pose_extractor():
+    """Lazy import of pose estimation to avoid import-time failures."""
+    global _extract_pose_keypoints
+    if _extract_pose_keypoints is not None:
+        return _extract_pose_keypoints
+    try:
+        from pose_estimation import extract_pose_keypoints
+        _extract_pose_keypoints = extract_pose_keypoints
+        return _extract_pose_keypoints
+    except Exception:
+        return None
 
 _session = None
 _input_name = None
@@ -150,10 +165,15 @@ def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DE
         yolo_detections = _motion_detector.detect(frame)
 
     # Extract pose keypoints for each detected player
-    for det in yolo_detections:
-        if det["type"] == "player":
-            keypoints = extract_pose_keypoints(frame, tuple(det["bbox"]))
-            det["keypoints"] = keypoints  # None if pose detection fails
+    pose_extractor = _get_pose_extractor()
+    if pose_extractor:
+        for det in yolo_detections:
+            if det["type"] == "player":
+                try:
+                    keypoints = pose_extractor(frame, tuple(det["bbox"]))
+                    det["keypoints"] = keypoints  # None if pose detection fails
+                except Exception:
+                    det["keypoints"] = None
 
     return yolo_detections
 
@@ -166,5 +186,8 @@ def reset_motion_detector():
 def reset_detection():
     """Reset all detection state (motion detector + pose estimator)."""
     reset_motion_detector()
-    from pose_estimation import reset_pose
-    reset_pose()
+    try:
+        from pose_estimation import reset_pose
+        reset_pose()
+    except Exception:
+        pass

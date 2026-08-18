@@ -11,27 +11,56 @@ MediaPipe Pose landmarks (33 total):
   26: right_knee, 27: left_ankle, 28: right_ankle, 29-32: feet
 """
 
+import logging
 import cv2
 import numpy as np
 from typing import Optional
 
-import mediapipe as mp
+logger = logging.getLogger(__name__)
 
-# MediaPipe Pose solution — lazy singleton to avoid reinitialization
-_mp_pose = mp.solutions.pose
+# Lazy import to handle environments where mediapipe isn't available
+_mp = None
+_mp_pose = None
 _pose_instance = None
+_mediapipe_available = None  # None = not checked yet
+
+
+def _check_mediapipe():
+    """Check if mediapipe is available and import it lazily."""
+    global _mp, _mp_pose, _mediapipe_available
+    if _mediapipe_available is not None:
+        return _mediapipe_available
+    try:
+        import mediapipe as mp
+        _mp = mp
+        _mp_pose = mp.solutions.pose
+        _mediapipe_available = True
+        logger.info("MediaPipe Pose loaded successfully")
+    except ImportError as e:
+        logger.warning(f"MediaPipe not available: {e}. Pose estimation disabled.")
+        _mediapipe_available = False
+    except Exception as e:
+        logger.warning(f"MediaPipe failed to initialize: {e}. Pose estimation disabled.")
+        _mediapipe_available = False
+    return _mediapipe_available
 
 
 def _get_pose():
     """Get or initialize MediaPipe Pose instance (singleton)."""
     global _pose_instance
+    if not _check_mediapipe():
+        return None
     if _pose_instance is None:
-        _pose_instance = _mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=1,  # 0=lite, 1=full, 2=heavy
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-        )
+        try:
+            _pose_instance = _mp_pose.Pose(
+                static_image_mode=False,
+                model_complexity=1,  # 0=lite, 1=full, 2=heavy
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize MediaPipe Pose: {e}")
+            return None
     return _pose_instance
 
 
@@ -39,7 +68,10 @@ def reset_pose():
     """Reset the MediaPipe Pose instance (call between videos)."""
     global _pose_instance
     if _pose_instance is not None:
-        _pose_instance.close()
+        try:
+            _pose_instance.close()
+        except Exception:
+            pass
         _pose_instance = None
 
 
@@ -60,41 +92,52 @@ def extract_pose_keypoints(
         or None if pose detection fails entirely.
         Coordinates are normalized 0-1 relative to the crop bbox.
     """
-    x1, y1, x2, y2 = [int(v) for v in bbox]
-    h_frame, w_frame = frame.shape[:2]
-
-    # Clamp to frame bounds
-    x1 = max(0, min(x1, w_frame - 1))
-    y1 = max(0, min(y1, h_frame - 1))
-    x2 = max(x1 + 1, min(x2, w_frame))
-    y2 = max(y1 + 1, min(y2, h_frame))
-
-    crop = frame[y1:y2, x1:x2]
-    if crop.size == 0:
+    # Gracefully return None if mediapipe is not available
+    if not _check_mediapipe():
         return None
 
-    # MediaPipe expects RGB
-    crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    try:
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        h_frame, w_frame = frame.shape[:2]
 
-    pose = _get_pose()
-    results = pose.process(crop_rgb)
+        # Clamp to frame bounds
+        x1 = max(0, min(x1, w_frame - 1))
+        y1 = max(0, min(y1, h_frame - 1))
+        x2 = max(x1 + 1, min(x2, w_frame))
+        y2 = max(y1 + 1, min(y2, h_frame))
 
-    if not results.pose_landmarks:
+        crop = frame[y1:y2, x1:x2]
+        if crop.size == 0:
+            return None
+
+        # MediaPipe expects RGB
+        crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+
+        pose = _get_pose()
+        if pose is None:
+            return None
+
+        results = pose.process(crop_rgb)
+
+        if not results.pose_landmarks:
+            return None
+
+        landmarks = results.pose_landmarks.landmark
+        keypoints = []
+
+        for lm in landmarks:
+            kp = {
+                "x": lm.x,  # Already normalized 0-1 relative to crop
+                "y": lm.y,  # Already normalized 0-1 relative to crop
+                "z": lm.z,  # Relative depth
+                "visibility": lm.visibility,
+            }
+            keypoints.append(kp)
+
+        return keypoints
+    except Exception as e:
+        logger.warning(f"Pose extraction failed: {e}")
         return None
-
-    landmarks = results.pose_landmarks.landmark
-    keypoints = []
-
-    for lm in landmarks:
-        kp = {
-            "x": lm.x,  # Already normalized 0-1 relative to crop
-            "y": lm.y,  # Already normalized 0-1 relative to crop
-            "z": lm.z,  # Relative depth
-            "visibility": lm.visibility,
-        }
-        keypoints.append(kp)
-
-    return keypoints
 
 
 def get_skeleton_connections() -> list[tuple[int, int]]:
