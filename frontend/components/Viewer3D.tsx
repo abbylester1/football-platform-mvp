@@ -1,12 +1,19 @@
 'use client';
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
 
+interface Keypoint {
+  x: number;
+  y: number;
+  z: number;
+  visibility: number;
+}
+
 interface AnimData {
   type: string; id: string; label: string;
-  frames: { frame: number; x: number; y: number; z: number }[];
+  frames: { frame: number; x: number; y: number; z: number; keypoints?: Keypoint[] }[];
 }
 
 function Field() {
@@ -41,8 +48,75 @@ function Field() {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  player: '#e74c3c', ball: '#f1c40f', cone: '#e67e22',
+  player: '#4FC3F7', ball: '#f1c40f', cone: '#e67e22',
 };
+
+// MediaPipe Pose landmark indices for skeleton rendering
+const SKELETON_CONNECTIONS: [number, number][] = [
+  [11, 12],  // shoulders
+  [11, 13],  // left upper arm
+  [13, 15],  // left forearm
+  [12, 14],  // right upper arm
+  [14, 16],  // right forearm
+  [11, 23],  // left torso
+  [12, 24],  // right torso
+  [23, 24],  // hips
+  [23, 25],  // left upper leg
+  [25, 27],  // left lower leg
+  [24, 26],  // right upper leg
+  [26, 28],  // right lower leg
+];
+
+const JOINT_INDICES = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+
+function Skeleton({ keypoints, color }: { keypoints: Keypoint[]; color: string }) {
+  const boneGeometry = useMemo(() => new THREE.CylinderGeometry(0.015, 0.015, 1, 6), []);
+
+  const bones = SKELETON_CONNECTIONS
+    .filter(([a, b]) => keypoints[a]?.visibility > 0.5 && keypoints[b]?.visibility > 0.5)
+    .map(([a, b]) => {
+      const start = new THREE.Vector3(keypoints[a].x, keypoints[a].y, keypoints[a].z);
+      const end = new THREE.Vector3(keypoints[b].x, keypoints[b].y, keypoints[b].z);
+      const midpoint = start.clone().add(end).multiplyScalar(0.5);
+      const length = start.distanceTo(end);
+      const direction = end.clone().sub(start).normalize();
+      const quaternion = new THREE.Quaternion().setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0), direction
+      );
+      return { midpoint, length, quaternion, key: `${a}-${b}` };
+    });
+
+  return (
+    <group>
+      {/* Joint spheres */}
+      {JOINT_INDICES.map((idx, i) => {
+        const kp = keypoints[idx];
+        if (!kp || kp.visibility <= 0.5) return null;
+        return (
+          <mesh key={`joint-${i}`} position={[kp.x, kp.y, kp.z]}>
+            <sphereGeometry args={[0.03, 8, 8]} />
+            <meshStandardMaterial color={color} />
+          </mesh>
+        );
+      })}
+      {/* Bone cylinders */}
+      {bones.map((bone) => (
+        <mesh key={bone.key} position={[bone.midpoint.x, bone.midpoint.y, bone.midpoint.z]}
+              quaternion={bone.quaternion} geometry={boneGeometry}
+              scale={[1, bone.length, 1]}>
+          <meshStandardMaterial color={color} />
+        </mesh>
+      ))}
+      {/* Head (approximate from nose landmark 0) */}
+      {keypoints[0]?.visibility > 0.5 && (
+        <mesh position={[keypoints[0].x, keypoints[0].y + 0.05, keypoints[0].z]}>
+          <sphereGeometry args={[0.06, 8, 8]} />
+          <meshStandardMaterial color="#f5d0b0" />
+        </mesh>
+      )}
+    </group>
+  );
+}
 
 function Avatar({ position, color, label }: { position: [number, number, number]; color: string; label: string }) {
   return (
@@ -89,6 +163,7 @@ interface AnimatedObjectProps {
 function AnimatedObject({ data, color, playingRef, speedRef, timeRef, totalFramesRef }: AnimatedObjectProps) {
   const groupRef = useRef<THREE.Group>(null);
   const clockRef = useRef(0);
+  const currentFrameRef = useRef<number>(0);
 
   useFrame((_, delta) => {
     if (data.frames.length < 2) return;
@@ -99,7 +174,8 @@ function AnimatedObject({ data, color, playingRef, speedRef, timeRef, totalFrame
     if (clockRef.current < 1 / fps) return;
     clockRef.current = 0;
     timeRef.current = (timeRef.current + 1) % data.frames.length;
-    const f = data.frames[Math.floor(timeRef.current)];
+    currentFrameRef.current = Math.floor(timeRef.current);
+    const f = data.frames[currentFrameRef.current];
     if (groupRef.current && f) groupRef.current.position.set(f.x, 0, f.z);
   });
 
@@ -107,10 +183,24 @@ function AnimatedObject({ data, color, playingRef, speedRef, timeRef, totalFrame
 
   const baseColor = data.type === 'player' ? color : data.type === 'ball' ? '#ffffff' : '#f39c12';
 
+  // Check if current frame has keypoints for skeleton rendering
+  const currentFrameIdx = Math.floor(timeRef.current);
+  const currentFrame = data.frames[currentFrameIdx] || data.frames[0];
+  const hasKeypoints = currentFrame?.keypoints && currentFrame.keypoints.length > 0;
+
   return (
     <group ref={groupRef}>
       {data.type === 'player' ? (
-        <Avatar position={[0, 0, 0]} color={baseColor} label={data.label} />
+        hasKeypoints ? (
+          <group>
+            <Skeleton keypoints={currentFrame.keypoints!} color={baseColor} />
+            <Text position={[0, 1.3, 0]} fontSize={0.15} color="white" anchorX="center" anchorY="middle">
+              {data.label}
+            </Text>
+          </group>
+        ) : (
+          <Avatar position={[0, 0, 0]} color={baseColor} label={data.label} />
+        )
       ) : data.type === 'ball' ? (
         <Sphere position={[0, 0.1, 0]} color={baseColor} />
       ) : (

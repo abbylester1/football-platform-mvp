@@ -12,4 +12,5 @@ Pillow
 onnxruntime
 onnx
 pytesseract
+mediapipe>=0.10.14,<1.0
 

@@ -1,13 +1,58 @@
 import os
 import cv2
 from config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL
-from detection import detect_objects, read_jersey_number, reset_motion_detector
+from detection import detect_objects, read_jersey_number, reset_detection
 from tracking import track_objects, reset_tracker
 from projection import project_to_3d
 from calibration import estimate_homography, detect_cones_in_frame
-from smoothing import smooth_trajectory
+from smoothing import smooth_trajectory, smooth_keypoints
 from animation import build_scene
 from database import SessionLocal, Drill, DrillStatus
+
+
+def project_keypoints_to_3d(
+    keypoints: list[dict],
+    bbox: list[float],
+    homography,
+    frame_width: int,
+    frame_height: int,
+) -> list[dict]:
+    """Transform normalized crop keypoints to 3D world coordinates.
+
+    Converts normalized crop-relative keypoints (0-1) to full-frame pixel
+    coordinates, then applies the homography to get pitch-world coordinates.
+
+    Args:
+        keypoints: List of {x, y, z, visibility} normalized to crop bbox.
+        bbox: [x1, y1, x2, y2] in pixel coordinates.
+        homography: 3x3 homography matrix (or None for linear fallback).
+        frame_width: Video frame width in pixels.
+        frame_height: Video frame height in pixels.
+
+    Returns:
+        List of {x, y, z, visibility} in world coordinates.
+    """
+    x1, y1, x2, y2 = bbox
+    crop_w = x2 - x1
+    crop_h = y2 - y1
+
+    world_keypoints = []
+    for kp in keypoints:
+        # Scale normalized crop coords to full-frame pixel coords
+        px = x1 + kp["x"] * crop_w
+        py = y1 + kp["y"] * crop_h
+
+        # Apply homography to get world coordinates
+        world = project_to_3d(px, py, homography, frame_width, frame_height)
+
+        world_keypoints.append({
+            "x": world["x"],
+            "y": world["y"],
+            "z": world.get("z", kp.get("z", 0.0)),
+            "visibility": kp.get("visibility", 0.0),
+        })
+
+    return world_keypoints
 
 
 def process_drill_sync(drill_id: str, video_path: str) -> str:
@@ -19,7 +64,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
     all_detections = []
     all_cone_bboxes: list[tuple[float, float, float, float]] = []
     reset_tracker()
-    reset_motion_detector()
+    reset_detection()
 
     while True:
         ret, frame = cap.read()
@@ -40,6 +85,25 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             obj["frame_idx"] = frame_count
 
         all_detections.extend(tracked)
+
+        # Store keypoints from detection for later use in pipeline
+        for det in detections:
+            if det.get("keypoints"):
+                # Match detection to tracked object by bbox overlap
+                for tracked_obj in tracked:
+                    if tracked_obj["type"] == det["type"]:
+                        tb = tracked_obj["bbox"]
+                        db = det["bbox"]
+                        # Simple overlap check — if bboxes overlap significantly
+                        ix1 = max(tb[0], db[0])
+                        iy1 = max(tb[1], db[1])
+                        ix2 = min(tb[2], db[2])
+                        iy2 = min(tb[3], db[3])
+                        inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                        area_a = (tb[2] - tb[0]) * (tb[3] - tb[1])
+                        if area_a > 0 and inter / area_a > 0.5:
+                            tracked_obj["keypoints"] = det["keypoints"]
+                            break
 
         for obj in tracked:
             if obj["type"] == "player" and "label" not in obj:
@@ -80,17 +144,32 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         for det in dets:
             cx, cy = det["center"]
             x3d, y3d, z3d = project_to_3d(cx, cy, homography, frame_width, frame_height)
-            frames.append({
+
+            frame_data = {
                 "frame": det["frame_idx"],
                 "x": float(x3d),
                 "y": float(y3d),
                 "z": float(z3d),
-            })
+            }
 
+            # Project keypoints to 3D if available
+            if det.get("keypoints"):
+                keypoints_3d = project_keypoints_to_3d(
+                    det["keypoints"], det["bbox"], homography, frame_width, frame_height
+                )
+                frame_data["keypoints"] = keypoints_3d
+
+            frames.append(frame_data)
+
+        # Smooth center trajectory
         positions = [(f["x"], f["y"], f["z"]) for f in frames]
         smoothed = smooth_trajectory(positions)
         for i, f in enumerate(frames):
             f["x"], f["y"], f["z"] = smoothed[i]
+
+        # Smooth keypoints trajectories
+        if obj_type == "player" and any(f.get("keypoints") for f in frames):
+            frames = smooth_keypoints(frames)
 
         detected_objects_list.append({
             "type": obj_type,

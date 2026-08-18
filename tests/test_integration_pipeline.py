@@ -11,10 +11,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 from tracking import track_objects, reset_tracker
 from calibration import estimate_homography, detect_cones_in_frame
 from projection import project_to_3d
-from smoothing import smooth_trajectory
+from smoothing import smooth_trajectory, smooth_keypoints
 from animation import build_scene, AVATAR_MAP, _create_avatar_mesh, _select_avatar
 from config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL, ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE
-from models import DetectedObject, FramePosition, DrillResponse, ObjectUpdate
+from models import DetectedObject, FramePosition, DrillResponse, ObjectUpdate, Keypoint
 from database import Drill, DrillStatus
 
 
@@ -257,6 +257,91 @@ class TestModelSchemas:
         )
         assert drill.name == "Integration Drill"
         assert drill.status == "uploading"
+
+
+class TestKeypointIntegration:
+    """Integration tests for keypoint data through the pipeline."""
+
+    def test_keypoints_through_smoothing(self):
+        """Keypoints should survive the smoothing pipeline without corruption."""
+        frames = []
+        np.random.seed(42)
+        for i in range(15):
+            noise = np.random.normal(0, 0.01)
+            frames.append({
+                "frame": i,
+                "x": float(i),
+                "y": float(i),
+                "z": 0.0,
+                "keypoints": [
+                    {"x": 0.5 + noise, "y": 0.5 + noise, "z": 0.0, "visibility": 0.9}
+                    for _ in range(33)
+                ]
+            })
+        result = smooth_keypoints(frames)
+        assert len(result) == 15
+        for f in result:
+            assert f.get("keypoints") is not None
+            assert len(f["keypoints"]) == 33
+
+    def test_build_scene_with_skeleton(self):
+        """GLB export should work with keypoints present."""
+        keypoints = [
+            {"x": 0.5, "y": 0.0, "z": 0.0, "visibility": 0.9} for _ in range(33)
+        ]
+        # Set specific landmark positions for visible skeleton
+        keypoints[0] = {"x": 0.5, "y": 1.5, "z": 0.0, "visibility": 0.9}   # nose
+        keypoints[11] = {"x": 0.4, "y": 1.2, "z": 0.0, "visibility": 0.9}  # left shoulder
+        keypoints[12] = {"x": 0.6, "y": 1.2, "z": 0.0, "visibility": 0.9}  # right shoulder
+        keypoints[23] = {"x": 0.4, "y": 0.8, "z": 0.0, "visibility": 0.9}  # left hip
+        keypoints[24] = {"x": 0.6, "y": 0.8, "z": 0.0, "visibility": 0.9}  # right hip
+
+        objects = [
+            {
+                "type": "player",
+                "id": "player_1",
+                "frames": [{"frame": 0, "x": 0.0, "y": 0.0, "z": 0.0, "keypoints": keypoints}],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = build_scene(objects, "skeleton_test", tmp)
+            assert os.path.exists(path)
+            assert path.endswith(".glb")
+            assert os.path.getsize(path) > 100
+
+    def test_build_scene_without_keypoints_fallback(self):
+        """GLB export should fall back to capsule when no keypoints present."""
+        objects = [
+            {
+                "type": "player",
+                "id": "player_1",
+                "frames": [{"frame": 0, "x": 0.0, "y": 0.0, "z": 0.0}],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = build_scene(objects, "capsule_fallback_test", tmp)
+            assert os.path.exists(path)
+            assert path.endswith(".glb")
+
+    def test_frame_position_with_keypoints_serialization(self):
+        """FramePosition with keypoints should serialize/deserialize correctly."""
+        kp = Keypoint(x=0.5, y=0.5, z=0.1, visibility=0.9)
+        fp = FramePosition(frame=1, x=1.0, y=2.0, z=3.0, keypoints=[kp])
+        data = fp.model_dump()
+        assert data["keypoints"] is not None
+        assert len(data["keypoints"]) == 1
+        assert data["keypoints"][0]["x"] == 0.5
+
+        # Round-trip
+        fp2 = FramePosition(**data)
+        assert fp2.keypoints is not None
+        assert fp2.keypoints[0].x == 0.5
+
+    def test_frame_position_backward_compatible(self):
+        """Old drill data without keypoints should deserialize correctly."""
+        data = {"frame": 1, "x": 1.0, "y": 2.0, "z": 3.0}
+        fp = FramePosition(**data)
+        assert fp.keypoints is None
 
 
 class TestConfig:
