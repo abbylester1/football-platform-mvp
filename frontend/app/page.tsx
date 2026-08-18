@@ -324,10 +324,25 @@ export default function Home() {
               >
                 Open Drill
               </Link>
-              <button className="block w-full bg-gray-900 text-gray-500 font-medium py-2.5 rounded-xl text-sm hover:bg-gray-800 hover:text-gray-300 transition-all duration-200 active:scale-[0.98]">
+              <button onClick={() => {
+                if (!drillId) return;
+                fetch(`/api/drills/${drillId}`).then(r => r.json()).then(d => {
+                  if (d.scene_key) {
+                    const link = document.createElement('a');
+                    link.href = `/api/scenes/${d.scene_key}`;
+                    link.download = `${d.name || 'drill'}.glb`;
+                    link.click();
+                  }
+                });
+              }} className="block w-full bg-gray-900 text-gray-500 font-medium py-2.5 rounded-xl text-sm hover:bg-gray-800 hover:text-gray-300 transition-all duration-200 active:scale-[0.98]">
                 Download GLB
               </button>
-              <button className="block w-full bg-gray-900 text-gray-500 font-medium py-2.5 rounded-xl text-sm hover:bg-gray-800 hover:text-gray-300 transition-all duration-200 active:scale-[0.98]">
+              <button onClick={() => {
+                if (drillId) {
+                  navigator.clipboard.writeText(`${window.location.origin}/drill/${drillId}`);
+                  alert('Link copied to clipboard!');
+                }
+              }} className="block w-full bg-gray-900 text-gray-500 font-medium py-2.5 rounded-xl text-sm hover:bg-gray-800 hover:text-gray-300 transition-all duration-200 active:scale-[0.98]">
                 Share
               </button>
             </div>

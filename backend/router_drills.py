@@ -1,4 +1,5 @@
 import os
+import shutil
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from database import SessionLocal, Drill, DrillStatus
@@ -55,6 +56,34 @@ def generate_3d(drill_id: str):
         db.close()
     return {"status": "processing"}
 
+@router.delete("/drills/{drill_id}")
+def delete_drill(drill_id: str):
+    db = SessionLocal()
+    try:
+        drill = db.query(Drill).filter(Drill.id == drill_id).first()
+        if not drill:
+            raise HTTPException(404, "Drill not found")
+
+        # Delete associated files
+        if drill.video_key:
+            video_path = os.path.join(VIDEOS_DIR, drill.video_key)
+            if os.path.exists(video_path):
+                os.remove(video_path)
+
+        if drill.scene_key:
+            scene_path = os.path.join(SCENES_DIR, drill.scene_key)
+            if os.path.exists(scene_path):
+                os.remove(scene_path)
+
+        # Delete from database
+        db.delete(drill)
+        db.commit()
+    finally:
+        db.close()
+
+    return {"status": "deleted", "id": drill_id}
+
+
 @router.get("/video/{video_key}")
 def serve_video(video_key: str):
     safe_path = os.path.realpath(os.path.join(VIDEOS_DIR, video_key))
@@ -67,7 +96,7 @@ def serve_video(video_key: str):
     media_type = {"mp4": "video/mp4", "mov": "video/quicktime"}.get(ext, "application/octet-stream")
     return FileResponse(safe_path, media_type=media_type)
 
-@router.get("/scene/{scene_key}")
+@router.get("/scenes/{scene_key}")
 def serve_scene(scene_key: str):
     safe_path = os.path.realpath(os.path.join(SCENES_DIR, scene_key))
     scenes_dir = os.path.realpath(SCENES_DIR)
