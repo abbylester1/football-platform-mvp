@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import HeroAnimation from '@/components/HeroAnimation';
+import ProcessingAnimation from '@/components/ProcessingAnimation';
 
 interface Drill {
   id: string; name: string; status: string; category: string; created_at: string;
@@ -176,8 +178,9 @@ export default function Home() {
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-6">
         {stage === 'idle' && (
-          <div className="animate-fade-up">
-            <div className="py-28 md:py-36 text-center">
+          <div className="animate-fade-up relative">
+            <HeroAnimation />
+            <div className="relative z-10 py-28 md:py-36 text-center">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[11px] text-gray-500 mb-8">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
                 AI-powered 3D reconstruction
@@ -259,55 +262,11 @@ export default function Home() {
         )}
 
         {stage === 'processing' && (
-          <div className="max-w-2xl mx-auto py-24 animate-fade-up">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
-              <div>
-                <div className="flex items-center gap-2 mb-6">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60 animate-pulse" />
-                  <span className="text-[11px] text-gray-600 font-medium uppercase tracking-wider">Analyzing Your Drill</span>
-                </div>
-                <div className="space-y-3">
-                  {STEPS.map((step, i) => (
-                    <div key={i} className="flex items-center gap-3 text-sm transition-all duration-500">
-                      {i < currentStep ? (
-                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px]">✓</span>
-                      ) : i === currentStep ? (
-                        <span className="w-5 h-5 rounded-full border-2 border-white/30 flex items-center justify-center">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse-dot" />
-                        </span>
-                      ) : (
-                        <span className="w-5 h-5 rounded-full border border-gray-800" />
-                      )}
-                      <span className={`w-4 h-4 ${i <= currentStep ? 'text-white' : 'text-gray-600'}`}>
-                        {step.icon}
-                      </span>
-                      <span className={`transition-colors duration-300 ${i <= currentStep ? 'text-white' : 'text-gray-600'}`}>
-                        {step.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[11px] text-gray-600 mt-6">Estimated remaining &middot; {formatTime(remaining)}</p>
-              </div>
-
-              <div className="hidden md:flex items-center justify-center">
-                <div className="relative w-44 h-44">
-                  <div className="absolute inset-0 flex items-center justify-center opacity-[0.06]">
-                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round"><rect x="8" y="10" width="32" height="28" rx="2"/><path d="M18 16v16M30 16v16M8 24h32"/></svg>
-                  </div>
-                  <div className="absolute inset-0 flex items-center justify-center opacity-20 animate-step-visual">
-                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round"><circle cx="16" cy="10" r="4"/><path d="M6 28c0-5.5 4.5-10 10-10s10 4.5 10 10"/></svg>
-                  </div>
-                  <div className="absolute inset-0 flex items-center justify-center opacity-[0.12] animate-step-visual" style={{ animationDelay: '0.6s', marginTop: '-28px' }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><path d="M4 8l6.5 1.5L12 4M17 16l-4-2.5L12 20"/><path d="M18.5 9l-5.5 1.5L12 4"/><path d="M20.5 15L14 16l-2 5M5 16.5L12 15"/></svg>
-                  </div>
-                  <div className="absolute inset-0 flex items-center justify-center animate-step-visual" style={{ animationDelay: '1.2s', marginTop: '28px' }}>
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round"><circle cx="10" cy="4" r="1.5"/><path d="M10 6v4M10 10l-2.5 4M10 10l2.5 4M8 16l2-2 2 2"/></svg>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ProcessingAnimation
+            currentStep={currentStep}
+            steps={STEPS}
+            estimatedTime={180}
+          />
         )}
 
         {stage === 'complete' && (
