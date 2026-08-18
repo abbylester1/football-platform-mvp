@@ -350,6 +350,82 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* About Section */}
+      {stage === 'idle' && (
+        <footer className="border-t border-gray-800/40 mt-auto">
+          <div className="max-w-5xl mx-auto px-6 py-16">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+              {/* What We Do */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">What We Do</h3>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  We transform raw football training footage into interactive 3D visualizations.
+                  Our AI pipeline detects players, extracts skeletal poses, and reconstructs
+                  drill movements — giving coaches actionable insights from every session.
+                </p>
+              </div>
+
+              {/* How It Works */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">How It Works</h3>
+                <ul className="space-y-2 text-xs text-gray-600">
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-500 mt-0.5">01</span>
+                    <span>Upload a training video (MP4/MOV, up to 2GB)</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-500 mt-0.5">02</span>
+                    <span>AI detects players, ball, and cones using YOLOv11</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-500 mt-0.5">03</span>
+                    <span>MediaPipe extracts 33 skeletal landmarks per player</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-500 mt-0.5">04</span>
+                    <span>3D scene with articulated stick-figure skeletons</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Tech Stack */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Built With</h3>
+                <div className="flex flex-wrap gap-2">
+                  {['YOLOv11', 'MediaPipe', 'Next.js', 'Three.js', 'FastAPI', 'OpenCV'].map(tech => (
+                    <span key={tech} className="px-2.5 py-1 rounded-lg bg-gray-900/60 border border-gray-800/50 text-[11px] text-gray-500">
+                      {tech}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-700 mt-4">
+                  Open source · MIT License
+                </p>
+                <a
+                  href="https://github.com/abbylester1/football-platform-mvp"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-white transition-colors mt-2"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M6 0C2.69 0 0 2.69 0 6c0 2.69 1.75 4.97 4.19 5.77.31.06.42-.13.42-.3 0-.15-.01-.65-.01-1.27-1.7.37-2.06-.82-2.06-.82-.28-.7-.68-.89-.68-.89-.55-.38.04-.37.04-.37.61.04.93.63.93.63.54.92 1.42.65 1.77.5.05-.39.21-.65.38-.8-1.36-.15-2.79-.68-2.79-3.04 0-.67.24-1.22.63-1.65-.06-.15-.27-.77.06-1.6 0 0 .52-.17 1.7.63a5.94 5.94 0 013.12 0c1.18-.8 1.7-.63 1.7-.63.34.83.13 1.45.06 1.6.39.43.63.98.63 1.65 0 2.37-1.43 2.89-2.8 3.04.22.19.42.56.42 1.13 0 .82-.01 1.48-.01 1.68 0 .17.11.37.42.3C10.25 10.96 12 8.68 12 6c0-3.31-2.69-6-6-6z"/>
+                  </svg>
+                  View on GitHub
+                </a>
+              </div>
+            </div>
+
+            <div className="mt-12 pt-6 border-t border-gray-800/30 flex items-center justify-between text-[11px] text-gray-700">
+              <span>© 2026 Football Drill Digitization Platform</span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
+                All systems operational
+              </span>
+            </div>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
