@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import HeroAnimation from '@/components/HeroAnimation';
 import ProcessingAnimation from '@/components/ProcessingAnimation';
 
 interface Drill {
@@ -178,9 +177,8 @@ export default function Home() {
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-6">
         {stage === 'idle' && (
-          <div className="animate-fade-up relative">
-            <HeroAnimation />
-            <div className="relative z-10 py-28 md:py-36 text-center">
+          <div className="animate-fade-up">
+            <div className="py-28 md:py-36 text-center">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[11px] text-gray-500 mb-8">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
                 AI-powered 3D reconstruction
