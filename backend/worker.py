@@ -5,9 +5,20 @@ from detection import detect_objects, read_jersey_number, reset_detection
 from tracking import track_objects, reset_tracker
 from projection import project_to_3d
 from calibration import estimate_homography, detect_cones_in_frame
-from smoothing import smooth_trajectory, smooth_keypoints
+from smoothing import smooth_trajectory
 from animation import build_scene
 from database import SessionLocal, Drill, DrillStatus
+import os
+
+POSE_ENABLED = os.environ.get("POSE_ESTIMATION_ENABLED", "true").lower() == "true"
+
+# Lazy import for keypoint smoothing
+_smooth_keypoints = None
+if POSE_ENABLED:
+    try:
+        from smoothing import smooth_keypoints as _smooth_keypoints
+    except Exception:
+        pass
 
 
 def project_keypoints_to_3d(
@@ -181,8 +192,8 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             f["x"], f["y"], f["z"] = smoothed[i]
 
         # Smooth keypoints trajectories
-        if obj_type == "player" and any(f.get("keypoints") for f in frames):
-            frames = smooth_keypoints(frames)
+        if POSE_ENABLED and _smooth_keypoints and obj_type == "player" and any(f.get("keypoints") for f in frames):
+            frames = _smooth_keypoints(frames)
 
         detected_objects_list.append({
             "type": obj_type,

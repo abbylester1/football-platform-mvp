@@ -4,16 +4,24 @@ import onnxruntime
 import numpy as np
 from typing import Optional, List, Dict
 from config import YOLO_MODEL, DETECTION_CONFIDENCE
+import os
+
+# Pose estimation can be disabled via environment variable
+POSE_ENABLED = os.environ.get("POSE_ESTIMATION_ENABLED", "true").lower() == "true"
 
 # Lazy import to handle environments where pose_estimation might fail
 _extract_pose_keypoints = None
+_pose_checked = False
 
 
 def _get_pose_extractor():
     """Lazy import of pose estimation to avoid import-time failures."""
-    global _extract_pose_keypoints
-    if _extract_pose_keypoints is not None:
+    global _extract_pose_keypoints, _pose_checked
+    if _pose_checked:
         return _extract_pose_keypoints
+    _pose_checked = True
+    if not POSE_ENABLED:
+        return None
     try:
         from pose_estimation import extract_pose_keypoints
         _extract_pose_keypoints = extract_pose_keypoints
@@ -164,16 +172,17 @@ def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DE
             _motion_detector = MotionDetector()
         yolo_detections = _motion_detector.detect(frame)
 
-    # Extract pose keypoints for each detected player
-    pose_extractor = _get_pose_extractor()
-    if pose_extractor:
-        for det in yolo_detections:
-            if det["type"] == "player":
-                try:
-                    keypoints = pose_extractor(frame, tuple(det["bbox"]))
-                    det["keypoints"] = keypoints  # None if pose detection fails
-                except Exception:
-                    det["keypoints"] = None
+    # Extract pose keypoints for each detected player (if enabled)
+    if POSE_ENABLED:
+        pose_extractor = _get_pose_extractor()
+        if pose_extractor:
+            for det in yolo_detections:
+                if det["type"] == "player":
+                    try:
+                        keypoints = pose_extractor(frame, tuple(det["bbox"]))
+                        det["keypoints"] = keypoints  # None if pose detection fails
+                    except Exception:
+                        det["keypoints"] = None
 
     return yolo_detections
 
@@ -186,8 +195,9 @@ def reset_motion_detector():
 def reset_detection():
     """Reset all detection state (motion detector + pose estimator)."""
     reset_motion_detector()
-    try:
-        from pose_estimation import reset_pose
-        reset_pose()
-    except Exception:
-        pass
+    if POSE_ENABLED:
+        try:
+            from pose_estimation import reset_pose
+            reset_pose()
+        except Exception:
+            pass
