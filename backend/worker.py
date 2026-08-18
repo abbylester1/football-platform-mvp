@@ -55,11 +55,22 @@ def project_keypoints_to_3d(
     return world_keypoints
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def process_drill_sync(drill_id: str, video_path: str) -> str:
-    cap = cv2.VideoCapture(video_path)
+    logger.info(f"Starting processing for drill {drill_id}")
+    try:
+        cap = cv2.VideoCapture(video_path)
+    except Exception as e:
+        logger.error(f"Failed to open video: {e}")
+        raise
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    logger.info(f"Video: {total_frames} frames, {frame_width}x{frame_height}")
     frame_count = 0
     all_detections = []
     all_cone_bboxes: list[tuple[float, float, float, float]] = []
@@ -115,6 +126,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         all_cone_bboxes.extend(cones)
 
     cap.release()
+    logger.info(f"Processed {frame_count} frames, found {len(all_detections)} detections")
 
     objects_by_id: dict[int, list] = {}
     for det in all_detections:
@@ -122,6 +134,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         if tid is None:
             continue
         objects_by_id.setdefault(tid, []).append(det)
+    logger.info(f"Tracked {len(objects_by_id)} unique objects")
 
     cone_positions_2d = []
     for tid, dets in objects_by_id.items():

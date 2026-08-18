@@ -43,6 +43,12 @@ def debug():
             info[mod] = getattr(m, "__version__", "ok")
         except Exception as e:
             info[mod] = f"missing: {e}"
+    # Test mediapipe
+    try:
+        import mediapipe
+        info["mediapipe"] = getattr(mediapipe, "__version__", "ok")
+    except Exception as e:
+        info["mediapipe"] = f"missing: {e}"
     # Test ONNX model
     from config import YOLO_MODEL
     info["model_exists"] = os.path.exists(YOLO_MODEL)
