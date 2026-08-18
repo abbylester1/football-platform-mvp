@@ -1,5 +1,7 @@
 import os
+import sys
 import cv2
+import logging
 from config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL
 from detection import detect_objects, read_jersey_number, reset_detection
 from tracking import track_objects, reset_tracker
@@ -8,7 +10,14 @@ from calibration import estimate_homography, detect_cones_in_frame
 from smoothing import smooth_trajectory
 from animation import build_scene
 from database import SessionLocal, Drill, DrillStatus
-import os
+
+# Ensure logging goes to stdout
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
 
 POSE_ENABLED = os.environ.get("POSE_ESTIMATION_ENABLED", "true").lower() == "true"
 
@@ -28,34 +37,16 @@ def project_keypoints_to_3d(
     frame_width: int,
     frame_height: int,
 ) -> list[dict]:
-    """Transform normalized crop keypoints to 3D world coordinates.
-
-    Converts normalized crop-relative keypoints (0-1) to full-frame pixel
-    coordinates, then applies the homography to get pitch-world coordinates.
-
-    Args:
-        keypoints: List of {x, y, z, visibility} normalized to crop bbox.
-        bbox: [x1, y1, x2, y2] in pixel coordinates.
-        homography: 3x3 homography matrix (or None for linear fallback).
-        frame_width: Video frame width in pixels.
-        frame_height: Video frame height in pixels.
-
-    Returns:
-        List of {x, y, z, visibility} in world coordinates.
-    """
+    """Transform normalized crop keypoints to 3D world coordinates."""
     x1, y1, x2, y2 = bbox
     crop_w = x2 - x1
     crop_h = y2 - y1
 
     world_keypoints = []
     for kp in keypoints:
-        # Scale normalized crop coords to full-frame pixel coords
         px = x1 + kp["x"] * crop_w
         py = y1 + kp["y"] * crop_h
-
-        # Apply homography to get world coordinates
         world = project_to_3d(px, py, homography, frame_width, frame_height)
-
         world_keypoints.append({
             "x": world["x"],
             "y": world["y"],
@@ -66,27 +57,34 @@ def project_keypoints_to_3d(
     return world_keypoints
 
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 def process_drill_sync(drill_id: str, video_path: str) -> str:
-    logger.info(f"Starting processing for drill {drill_id}")
-    try:
-        cap = cv2.VideoCapture(video_path)
-    except Exception as e:
-        logger.error(f"Failed to open video: {e}")
-        raise
+    logger.info(f"[{drill_id}] Starting processing pipeline")
+    
+    if not os.path.exists(video_path):
+        logger.error(f"[{drill_id}] Video file not found: {video_path}")
+        raise FileNotFoundError(f"Video not found: {video_path}")
+    
+    logger.info(f"[{drill_id}] Video file exists, size={os.path.getsize(video_path)} bytes")
+    
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logger.error(f"[{drill_id}] Failed to open video with cv2")
+        raise RuntimeError(f"Cannot open video: {video_path}")
+    
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    logger.info(f"Video: {total_frames} frames, {frame_width}x{frame_height}")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    logger.info(f"[{drill_id}] Video info: {total_frames} frames, {frame_width}x{frame_height}, {fps}fps")
+    
     frame_count = 0
+    processed_count = 0
     all_detections = []
     all_cone_bboxes: list[tuple[float, float, float, float]] = []
     reset_tracker()
     reset_detection()
+
+    logger.info(f"[{drill_id}] Starting frame-by-frame detection (interval={FRAME_INTERVAL})")
 
     while True:
         ret, frame = cap.read()
@@ -95,6 +93,10 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         frame_count += 1
         if frame_count % FRAME_INTERVAL != 0:
             continue
+
+        processed_count += 1
+        if processed_count % 10 == 0:
+            logger.info(f"[{drill_id}] Processed {processed_count} keyframes ({frame_count}/{total_frames} frames)")
 
         detections = detect_objects(frame)
         tracked = track_objects(detections, frame_count)
@@ -108,15 +110,12 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
 
         all_detections.extend(tracked)
 
-        # Store keypoints from detection for later use in pipeline
         for det in detections:
             if det.get("keypoints"):
-                # Match detection to tracked object by bbox overlap
                 for tracked_obj in tracked:
                     if tracked_obj["type"] == det["type"]:
                         tb = tracked_obj["bbox"]
                         db = det["bbox"]
-                        # Simple overlap check — if bboxes overlap significantly
                         ix1 = max(tb[0], db[0])
                         iy1 = max(tb[1], db[1])
                         ix2 = min(tb[2], db[2])
@@ -137,7 +136,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         all_cone_bboxes.extend(cones)
 
     cap.release()
-    logger.info(f"Processed {frame_count} frames, found {len(all_detections)} detections")
+    logger.info(f"[{drill_id}] Detection complete: {processed_count} keyframes, {len(all_detections)} detections")
 
     objects_by_id: dict[int, list] = {}
     for det in all_detections:
@@ -145,7 +144,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         if tid is None:
             continue
         objects_by_id.setdefault(tid, []).append(det)
-    logger.info(f"Tracked {len(objects_by_id)} unique objects")
+    logger.info(f"[{drill_id}] Tracked {len(objects_by_id)} unique objects")
 
     cone_positions_2d = []
     for tid, dets in objects_by_id.items():
@@ -159,6 +158,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
     homography = None
     if len(cone_positions_2d) >= 4:
         homography = estimate_homography(cone_positions_2d[:4])
+    logger.info(f"[{drill_id}] Homography: {'estimated' if homography is not None else 'none (using fallback)'}")
 
     detected_objects_list = []
     for tid, dets in objects_by_id.items():
@@ -176,7 +176,6 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
                 "z": float(z3d),
             }
 
-            # Project keypoints to 3D if available
             if det.get("keypoints"):
                 keypoints_3d = project_keypoints_to_3d(
                     det["keypoints"], det["bbox"], homography, frame_width, frame_height
@@ -185,13 +184,11 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
 
             frames.append(frame_data)
 
-        # Smooth center trajectory
         positions = [(f["x"], f["y"], f["z"]) for f in frames]
         smoothed = smooth_trajectory(positions)
         for i, f in enumerate(frames):
             f["x"], f["y"], f["z"] = smoothed[i]
 
-        # Smooth keypoints trajectories
         if POSE_ENABLED and _smooth_keypoints and obj_type == "player" and any(f.get("keypoints") for f in frames):
             frames = _smooth_keypoints(frames)
 
@@ -202,7 +199,9 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             "frames": frames,
         })
 
+    logger.info(f"[{drill_id}] Building 3D scene...")
     scene_path = build_scene(detected_objects_list, drill_id, SCENES_DIR)
+    logger.info(f"[{drill_id}] Scene built: {scene_path}")
 
     db = SessionLocal()
     try:
@@ -212,6 +211,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             drill.scene_key = os.path.basename(scene_path)
             drill.status = DrillStatus.REVIEW.value
             db.commit()
+            logger.info(f"[{drill_id}] Drill saved with status REVIEW")
     finally:
         db.close()
 
