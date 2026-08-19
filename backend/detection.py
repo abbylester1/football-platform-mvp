@@ -106,12 +106,12 @@ def detect_objects(
 
     try:
         # Run inference with ultralytics — handles letterboxing, DFL, NMS internally
+        # Detect ALL classes first for debugging, then filter
         results = model(
             frame,
             conf=confidence_threshold,
             iou=0.5,
             imgsz=img_size,
-            classes=DETECT_CLASSES,  # Only detect person (0) and sports ball (32)
             verbose=False,
         )
 
@@ -121,11 +121,26 @@ def detect_objects(
             boxes = result.boxes
 
             if boxes is not None and len(boxes) > 0:
+                # Debug: log class distribution for first few frames
+                all_cls = [int(c) for c in boxes.cls.cpu().numpy()]
+                from collections import Counter
+                cls_counts = Counter(all_cls)
+                # Get model class names
+                model_names = result.names if hasattr(result, 'names') else {}
+                top5 = cls_counts.most_common(5)
+                top5_str = ', '.join(f'{model_names.get(c, c)}({n})' for c, n in top5)
+                if not hasattr(detect_objects, '_debug_logged'):
+                    detect_objects._debug_logged = 0
+                if detect_objects._debug_logged < 3:
+                    detect_objects._debug_logged += 1
+                    logger.info(f"[detect] Raw YOLO output: {len(boxes)} boxes, top classes: {top5_str}")
+
                 for i in range(len(boxes)):
                     cls_id = int(boxes.cls[i])
                     conf = float(boxes.conf[i])
                     xyxy = boxes.xyxy[i].cpu().numpy()
 
+                    # Filter to person and ball only
                     obj_type = COCO_CLASSES.get(cls_id)
                     if obj_type is None:
                         continue
@@ -143,8 +158,17 @@ def detect_objects(
             if pose_model is not None:
                 _extract_pose_keypoints(frame, detections, pose_model, img_size)
             else:
-                # Fall back to MediaPipe if available
+                # Fall back to MediaPipe if if available
                 _extract_mediapipe_keypoints(frame, detections)
+
+        # Debug: log filtered summary for first few frames
+        if not hasattr(detect_objects, '_debug_summary'):
+            detect_objects._debug_summary = 0
+        if detect_objects._debug_summary < 3:
+            detect_objects._debug_summary += 1
+            p_count = sum(1 for d in detections if d['type'] == 'player')
+            b_count = sum(1 for d in detections if d['type'] == 'ball')
+            logger.info(f"[detect] Frame filtered: {p_count} players, {b_count} balls, total={len(detections)}")
 
         return detections
 
