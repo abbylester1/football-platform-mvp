@@ -51,6 +51,50 @@ def _preprocess(frame: np.ndarray) -> np.ndarray:
     img = np.ascontiguousarray(img).astype(np.float32) / 255.0
     return np.expand_dims(img, axis=0)
 
+def _nms(detections: List[Dict], iou_threshold: float = 0.5) -> List[Dict]:
+    """Non-Maximum Suppression: remove overlapping boxes of the same type.
+    
+    Keeps the highest-confidence detection when two boxes overlap beyond
+    the iou_threshold. Applied separately per object type (players, balls, cones).
+    """
+    if not detections:
+        return detections
+
+    # Group by type
+    by_type: Dict[str, List[Dict]] = {}
+    for d in detections:
+        by_type.setdefault(d["type"], []).append(d)
+
+    result = []
+    for obj_type, dets in by_type.items():
+        # Sort by confidence descending
+        dets.sort(key=lambda d: d["confidence"], reverse=True)
+        keep = []
+        suppressed = set()
+        for i, d in enumerate(dets):
+            if i in suppressed:
+                continue
+            keep.append(d)
+            for j in range(i + 1, len(dets)):
+                if j in suppressed:
+                    continue
+                # Compute IoU
+                bi, bj = d["bbox"], dets[j]["bbox"]
+                ix1 = max(bi[0], bj[0])
+                iy1 = max(bi[1], bj[1])
+                ix2 = min(bi[2], bj[2])
+                iy2 = min(bi[3], bj[3])
+                inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                area_i = (bi[2] - bi[0]) * (bi[3] - bi[1])
+                area_j = (bj[2] - bj[0]) * (bj[3] - bj[1])
+                union = area_i + area_j - inter
+                iou_val = inter / union if union > 0 else 0.0
+                if iou_val > iou_threshold:
+                    suppressed.add(j)
+        result.extend(keep)
+    return result
+
+
 def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: tuple) -> List[Dict]:
     arr = outputs[0][0]
     boxes = arr[:4, :].T
@@ -74,6 +118,8 @@ def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: t
             "bbox": [x1, y1, x2, y2],
             "confidence": float(max_score),
         })
+    # Apply NMS to remove overlapping duplicates
+    detections = _nms(detections, iou_threshold=0.5)
     return detections
 
 def read_jersey_number(frame: np.ndarray, bbox: list[float]) -> str:
@@ -102,7 +148,7 @@ class MotionDetector:
     background subtraction to find moving blobs on the field.
     """
 
-    def __init__(self, history: int = 50, var_threshold: float = 16.0, min_area: int = 30):
+    def __init__(self, history: int = 50, var_threshold: float = 16.0, min_area: int = 200):
         self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(
             history=history, varThreshold=var_threshold, detectShadows=False
         )
@@ -170,7 +216,20 @@ def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DE
         global _motion_detector
         if _motion_detector is None:
             _motion_detector = MotionDetector()
-        yolo_detections = _motion_detector.detect(frame)
+        motion_dets = _motion_detector.detect(frame)
+        # Only use motion detections with reasonable confidence
+        yolo_detections = [d for d in motion_dets if d.get("confidence", 0) > 0.3]
+        # Apply NMS to motion detections too
+        yolo_detections = _nms(yolo_detections, iou_threshold=0.4)
+
+    # Cap player detections to a reasonable max (football has at most ~22 players)
+    players = [d for d in yolo_detections if d["type"] == "player"]
+    others = [d for d in yolo_detections if d["type"] != "player"]
+    if len(players) > 30:
+        # Keep only the 30 highest-confidence player detections
+        players.sort(key=lambda d: d["confidence"], reverse=True)
+        players = players[:30]
+    yolo_detections = players + others
 
     # Extract pose keypoints for each detected player (if enabled)
     if POSE_ENABLED:

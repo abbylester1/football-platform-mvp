@@ -4,7 +4,7 @@ import cv2
 import logging
 from config import VIDEOS_DIR, SCENES_DIR, FRAME_INTERVAL
 from detection import detect_objects, read_jersey_number, reset_detection
-from tracking import track_objects, reset_tracker
+from tracking import track_objects, reset_tracker, merge_close_tracks
 from projection import project_to_3d
 from calibration import estimate_homography, detect_cones_in_frame
 from smoothing import smooth_trajectory
@@ -144,7 +144,30 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         if tid is None:
             continue
         objects_by_id.setdefault(tid, []).append(det)
-    logger.info(f"[{drill_id}] Tracked {len(objects_by_id)} unique objects")
+    logger.info(f"[{drill_id}] Raw tracks: {len(objects_by_id)} unique objects")
+
+    # Merge close tracks (same type, overlapping spatial positions)
+    objects_by_id = merge_close_tracks(objects_by_id, max_center_dist=3.0)
+    logger.info(f"[{drill_id}] After merge: {len(objects_by_id)} objects")
+
+    # Filter out short tracks (< 3 frames) — these are ghosts
+    min_track_length = 3
+    objects_by_id = {tid: dets for tid, dets in objects_by_id.items() if len(dets) >= min_track_length}
+    logger.info(f"[{drill_id}] After filtering (< {min_track_length} frames): {len(objects_by_id)} objects")
+
+    # Cap total objects: at most 25 players (22 on field + subs) and 5 balls/cones
+    players = {tid: dets for tid, dets in objects_by_id.items() if dets[0]["type"] == "player"}
+    non_players = {tid: dets for tid, dets in objects_by_id.items() if dets[0]["type"] != "player"}
+    if len(players) > 25:
+        # Keep players with most detections (most tracked)
+        sorted_pids = sorted(players.keys(), key=lambda tid: len(players[tid]), reverse=True)
+        players = {tid: players[tid] for tid in sorted_pids[:25]}
+        logger.info(f"[{drill_id}] Capped players from {len(sorted_pids)} to 25")
+    if len(non_players) > 10:
+        sorted_nids = sorted(non_players.keys(), key=lambda tid: len(non_players[tid]), reverse=True)
+        non_players = {tid: non_players[tid] for tid in sorted_nids[:10]}
+    objects_by_id = {**players, **non_players}
+    logger.info(f"[{drill_id}] Final: {len(objects_by_id)} objects ({len(players)} players, {len(non_players)} non-players)")
 
     cone_positions_2d = []
     for tid, dets in objects_by_id.items():
