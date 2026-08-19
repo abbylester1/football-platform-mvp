@@ -140,20 +140,31 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         detections = detect_objects(frame)
         
         # === Filter: only keep detections inside the drill area ===
+        # Safety: expand polygon by 40% for margin, and if it removes ALL
+        # detections, disable filtering (bad cone detection = bad polygon).
         if scene.drill_polygon is not None and detections:
             import cv2 as _cv2
+            # Expand polygon center-outward by 40%
+            center = np.mean(scene.drill_polygon, axis=0)
+            expanded = center + (scene.drill_polygon - center) * 1.4
+            expanded = expanded.astype(np.float32)
+            
             filtered = []
             for d in detections:
                 bbox = d["bbox"]
                 cx = (bbox[0] + bbox[2]) / 2
                 cy = (bbox[1] + bbox[3]) / 2
                 inside = _cv2.pointPolygonTest(
-                    scene.drill_polygon, (float(cx), float(cy)), False
+                    expanded, (float(cx), float(cy)), False
                 ) >= 0
-                if inside or d["type"] == "ball":  # Always keep ball
+                if inside or d["type"] == "ball":
                     filtered.append(d)
-            logger.debug(f"[{drill_id}] Frame {frame_count}: {len(detections)} detections -> {len(filtered)} inside drill area")
-            detections = filtered
+            
+            # If filtering removed everything, disable it for this video
+            if len(filtered) == 0 and len(detections) > 0:
+                logger.warning(f"[{drill_id}] Drill area filter removed all {len(detections)} detections — disabling spatial filter")
+            else:
+                detections = filtered
         
         tracked = track_objects(detections, frame_count)
 
@@ -301,13 +312,13 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             drill.detected_objects = detected_objects_list
             drill.scene_key = os.path.basename(scene_path)
             drill.scene_analysis = {
-                "camera_angle": scene.camera_angle,
-                "camera_confidence": round(scene.camera_confidence, 2),
-                "expected_players": scene.expected_players,
-                "player_confidence": round(scene.player_confidence, 2),
-                "cones_detected": len(scene.cone_positions),
-                "drill_area": scene.drill_area_bbox is not None,
-                "analysis_confidence": round(scene.analysis_confidence, 2),
+                "camera_angle": str(scene.camera_angle),
+                "camera_confidence": float(round(scene.camera_confidence, 2)),
+                "expected_players": int(scene.expected_players),
+                "player_confidence": float(round(scene.player_confidence, 2)),
+                "cones_detected": int(len(scene.cone_positions)),
+                "drill_area": bool(scene.drill_area_bbox is not None),
+                "analysis_confidence": float(round(scene.analysis_confidence, 2)),
             }
             drill.status = DrillStatus.REVIEW.value
             db.commit()

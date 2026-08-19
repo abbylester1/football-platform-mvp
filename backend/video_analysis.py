@@ -273,9 +273,9 @@ def _build_drill_area(
     if len(cone_positions) >= 3:
         # Convex hull of cone positions
         hull = cv2.convexHull(pts)
-        # Expand hull by 20% to give margin
+        # Expand hull by 40% to give generous margin
         center = np.mean(hull, axis=0)
-        expanded = center + (hull - center) * 1.2
+        expanded = center + (hull - center) * 1.4
         expanded = expanded.astype(np.float32)
         
         bbox = (
