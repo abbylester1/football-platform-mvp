@@ -41,10 +41,11 @@ def init_db():
     os.makedirs(SCENES_DIR, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     # Add new columns if missing (SQLite migration)
+    from sqlalchemy import text
     with engine.connect() as conn:
         try:
-            conn.execute("SELECT scene_analysis FROM drills LIMIT 1")
+            conn.execute(text("SELECT scene_analysis FROM drills LIMIT 1"))
         except Exception:
-            conn.execute("ALTER TABLE drills ADD COLUMN scene_analysis JSON DEFAULT '{}'" )
+            conn.execute(text("ALTER TABLE drills ADD COLUMN scene_analysis JSON DEFAULT '{}'"))
             conn.commit()
     return SessionLocal()
