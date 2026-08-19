@@ -23,22 +23,18 @@ function Field() {
         <planeGeometry args={[30, 20]} />
         <meshStandardMaterial color="#2d5a3f" />
       </mesh>
-      {/* Field markings */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
         <planeGeometry args={[28, 18]} />
         <meshBasicMaterial color="#3a7a4f" wireframe />
       </mesh>
-      {/* Center line */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
         <planeGeometry args={[0.04, 18]} />
         <meshBasicMaterial color="white" opacity={0.3} transparent />
       </mesh>
-      {/* Center circle */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
         <ringGeometry args={[4.5, 4.54, 32]} />
         <meshBasicMaterial color="white" opacity={0.3} transparent side={THREE.DoubleSide} />
       </mesh>
-      {/* Center dot */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
         <circleGeometry args={[0.2, 16]} />
         <meshBasicMaterial color="white" opacity={0.3} transparent />
@@ -47,31 +43,162 @@ function Field() {
   );
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  player: '#4FC3F7', ball: '#f1c40f', cone: '#e67e22',
+/* ─── Team color palettes ─── */
+const TEAM_COLORS = {
+  red:    { jersey: '#cc2233', shorts: '#ffffff', socks: '#cc2233', skin: '#f5d0a9' },
+  blue:   { jersey: '#2244aa', shorts: '#ffffff', socks: '#2244aa', skin: '#f5d0a9' },
+  yellow: { jersey: '#ddaa00', shorts: '#222222', socks: '#ddaa00', skin: '#f5d0a9' },
+  green:  { jersey: '#228833', shorts: '#ffffff', socks: '#228833', skin: '#f5d0a9' },
+  white:  { jersey: '#f0f0f0', shorts: '#222222', socks: '#f0f0f0', skin: '#f5d0a9' },
+  black:  { jersey: '#222222', shorts: '#ffffff', socks: '#222222', skin: '#f5d0a9' },
 };
 
-// MediaPipe Pose landmark indices for skeleton rendering
-const SKELETON_CONNECTIONS: [number, number][] = [
-  [11, 12],  // shoulders
-  [11, 13],  // left upper arm
-  [13, 15],  // left forearm
-  [12, 14],  // right upper arm
-  [14, 16],  // right forearm
-  [11, 23],  // left torso
-  [12, 24],  // right torso
-  [23, 24],  // hips
-  [23, 25],  // left upper leg
-  [25, 27],  // left lower leg
-  [24, 26],  // right upper leg
-  [26, 28],  // right lower leg
-];
+const TEAM_NAMES = Object.keys(TEAM_COLORS);
 
+function assignTeam(id: string, label: string): typeof TEAM_COLORS.red {
+  // Assign team based on ID hash — consistent across renders
+  let hash = 0;
+  const str = id + label;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  const idx = Math.abs(hash) % TEAM_NAMES.length;
+  return TEAM_COLORS[TEAM_NAMES[idx] as keyof typeof TEAM_COLORS];
+}
+
+/* ─── Realistic Football Player ─── */
+function FootballPlayer({ color, label, walkPhase }: {
+  color: typeof TEAM_COLORS.red;
+  label: string;
+  walkPhase: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const leftArmRef = useRef<THREE.Group>(null);
+  const rightArmRef = useRef<THREE.Group>(null);
+  const leftLegRef = useRef<THREE.Group>(null);
+  const rightLegRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    const swing = Math.sin(walkPhase) * 0.4;
+    if (leftArmRef.current) leftArmRef.current.rotation.x = swing;
+    if (rightArmRef.current) rightArmRef.current.rotation.x = -swing;
+    if (leftLegRef.current) leftLegRef.current.rotation.x = -swing * 0.7;
+    if (rightLegRef.current) rightLegRef.current.rotation.x = swing * 0.7;
+  });
+
+  return (
+    <group ref={groupRef}>
+      {/* ── Torso (jersey) ── */}
+      <mesh position={[0, 0.85, 0]} castShadow>
+        <boxGeometry args={[0.32, 0.4, 0.2]} />
+        <meshStandardMaterial color={color.jersey} />
+      </mesh>
+
+      {/* ── Jersey number ── */}
+      {label && (
+        <Text
+          position={[0, 0.85, 0.11]}
+          fontSize={0.1}
+          color="white"
+          anchorX="center"
+          anchorY="middle"
+          fontWeight="bold"
+        >
+          {label}
+        </Text>
+      )}
+
+      {/* ── Shorts ── */}
+      <mesh position={[0, 0.58, 0]} castShadow>
+        <boxGeometry args={[0.34, 0.16, 0.22]} />
+        <meshStandardMaterial color={color.shorts} />
+      </mesh>
+
+      {/* ── Head ── */}
+      <mesh position={[0, 1.18, 0]} castShadow>
+        <sphereGeometry args={[0.1, 12, 12]} />
+        <meshStandardMaterial color={color.skin} />
+      </mesh>
+
+      {/* ── Hair ── */}
+      <mesh position={[0, 1.23, -0.02]} castShadow>
+        <sphereGeometry args={[0.1, 12, 12, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
+        <meshStandardMaterial color="#3a2a1a" />
+      </mesh>
+
+      {/* ── Left Arm ── */}
+      <group ref={leftArmRef} position={[-0.22, 0.95, 0]}>
+        {/* Upper arm (jersey) */}
+        <mesh position={[0, -0.08, 0]} castShadow>
+          <boxGeometry args={[0.08, 0.16, 0.08]} />
+          <meshStandardMaterial color={color.jersey} />
+        </mesh>
+        {/* Lower arm (skin) */}
+        <mesh position={[0, -0.22, 0]} castShadow>
+          <boxGeometry args={[0.06, 0.12, 0.06]} />
+          <meshStandardMaterial color={color.skin} />
+        </mesh>
+      </group>
+
+      {/* ── Right Arm ── */}
+      <group ref={rightArmRef} position={[0.22, 0.95, 0]}>
+        <mesh position={[0, -0.08, 0]} castShadow>
+          <boxGeometry args={[0.08, 0.16, 0.08]} />
+          <meshStandardMaterial color={color.jersey} />
+        </mesh>
+        <mesh position={[0, -0.22, 0]} castShadow>
+          <boxGeometry args={[0.06, 0.12, 0.06]} />
+          <meshStandardMaterial color={color.skin} />
+        </mesh>
+      </group>
+
+      {/* ── Left Leg ── */}
+      <group ref={leftLegRef} position={[-0.1, 0.48, 0]}>
+        {/* Thigh (skin) */}
+        <mesh position={[0, -0.1, 0]} castShadow>
+          <boxGeometry args={[0.1, 0.2, 0.1]} />
+          <meshStandardMaterial color={color.skin} />
+        </mesh>
+        {/* Shin (sock) */}
+        <mesh position={[0, -0.28, 0]} castShadow>
+          <boxGeometry args={[0.08, 0.16, 0.08]} />
+          <meshStandardMaterial color={color.socks} />
+        </mesh>
+        {/* Boot (cleat) */}
+        <mesh position={[0, -0.38, 0.02]} castShadow>
+          <boxGeometry args={[0.09, 0.06, 0.14]} />
+          <meshStandardMaterial color="#111111" />
+        </mesh>
+      </group>
+
+      {/* ── Right Leg ── */}
+      <group ref={rightLegRef} position={[0.1, 0.48, 0]}>
+        <mesh position={[0, -0.1, 0]} castShadow>
+          <boxGeometry args={[0.1, 0.2, 0.1]} />
+          <meshStandardMaterial color={color.skin} />
+        </mesh>
+        <mesh position={[0, -0.28, 0]} castShadow>
+          <boxGeometry args={[0.08, 0.16, 0.08]} />
+          <meshStandardMaterial color={color.socks} />
+        </mesh>
+        <mesh position={[0, -0.38, 0.02]} castShadow>
+          <boxGeometry args={[0.09, 0.06, 0.14]} />
+          <meshStandardMaterial color="#111111" />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+/* ─── Skeleton (when keypoints available) ─── */
+const SKELETON_CONNECTIONS: [number, number][] = [
+  [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
+  [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28],
+];
 const JOINT_INDICES = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
 
 function Skeleton({ keypoints, color }: { keypoints: Keypoint[]; color: string }) {
   const boneGeometry = useMemo(() => new THREE.CylinderGeometry(0.015, 0.015, 1, 6), []);
-
   const bones = SKELETON_CONNECTIONS
     .filter(([a, b]) => keypoints[a]?.visibility > 0.5 && keypoints[b]?.visibility > 0.5)
     .map(([a, b]) => {
@@ -80,15 +207,12 @@ function Skeleton({ keypoints, color }: { keypoints: Keypoint[]; color: string }
       const midpoint = start.clone().add(end).multiplyScalar(0.5);
       const length = start.distanceTo(end);
       const direction = end.clone().sub(start).normalize();
-      const quaternion = new THREE.Quaternion().setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0), direction
-      );
+      const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
       return { midpoint, length, quaternion, key: `${a}-${b}` };
     });
 
   return (
     <group>
-      {/* Joint spheres */}
       {JOINT_INDICES.map((idx, i) => {
         const kp = keypoints[idx];
         if (!kp || kp.visibility <= 0.5) return null;
@@ -99,15 +223,12 @@ function Skeleton({ keypoints, color }: { keypoints: Keypoint[]; color: string }
           </mesh>
         );
       })}
-      {/* Bone cylinders */}
       {bones.map((bone) => (
         <mesh key={bone.key} position={[bone.midpoint.x, bone.midpoint.y, bone.midpoint.z]}
-              quaternion={bone.quaternion} geometry={boneGeometry}
-              scale={[1, bone.length, 1]}>
+              quaternion={bone.quaternion} geometry={boneGeometry} scale={[1, bone.length, 1]}>
           <meshStandardMaterial color={color} />
         </mesh>
       ))}
-      {/* Head (approximate from nose landmark 0) */}
       {keypoints[0]?.visibility > 0.5 && (
         <mesh position={[keypoints[0].x, keypoints[0].y + 0.05, keypoints[0].z]}>
           <sphereGeometry args={[0.06, 8, 8]} />
@@ -118,40 +239,31 @@ function Skeleton({ keypoints, color }: { keypoints: Keypoint[]; color: string }
   );
 }
 
-function Avatar({ position, color, label }: { position: [number, number, number]; color: string; label: string }) {
-  return (
-    <group position={position}>
-      <mesh position={[0, 0.6, 0]} castShadow>
-        <capsuleGeometry args={[0.15, 0.7, 4, 8]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
-      <mesh position={[0, 1.2, 0]} castShadow>
-        <sphereGeometry args={[0.12, 8, 8]} />
-        <meshStandardMaterial color="#f5d0b0" />
-      </mesh>
-      <Text position={[0, 1.5, 0]} fontSize={0.15} color="white" anchorX="center" anchorY="middle">{label}</Text>
-    </group>
-  );
-}
-
-function Sphere({ position, color }: { position: [number, number, number]; color: string }) {
+function Ball({ position }: { position: [number, number, number] }) {
   return (
     <mesh position={position} castShadow>
-      <sphereGeometry args={[0.1, 8, 8]} />
-      <meshStandardMaterial color={color} />
+      <sphereGeometry args={[0.1, 16, 16]} />
+      <meshStandardMaterial color="#ffffff" roughness={0.3} metalness={0.1} />
     </mesh>
   );
 }
 
 function ConeMesh({ position }: { position: [number, number, number] }) {
   return (
-    <mesh position={position} castShadow>
-      <coneGeometry args={[0.04, 0.12, 6]} />
-      <meshStandardMaterial color="#f39c12" />
-    </mesh>
+    <group position={position}>
+      <mesh castShadow>
+        <coneGeometry args={[0.04, 0.15, 8]} />
+        <meshStandardMaterial color="#ff8c00" />
+      </mesh>
+      <mesh position={[0, -0.075, 0]}>
+        <cylinderGeometry args={[0.06, 0.06, 0.02, 8]} />
+        <meshStandardMaterial color="#ff6600" />
+      </mesh>
+    </group>
   );
 }
 
+/* ─── Animated Object ─── */
 interface AnimatedObjectProps {
   data: AnimData; color: string;
   playingRef: React.MutableRefObject<boolean>;
@@ -164,26 +276,48 @@ function AnimatedObject({ data, color, playingRef, speedRef, timeRef, totalFrame
   const groupRef = useRef<THREE.Group>(null);
   const clockRef = useRef(0);
   const currentFrameRef = useRef<number>(0);
+  const walkPhaseRef = useRef(0);
+
+  // Assign consistent team colors
+  const teamColor = useMemo(() => assignTeam(data.id, data.label), [data.id, data.label]);
 
   useFrame((_, delta) => {
     if (data.frames.length < 2) return;
     totalFramesRef.current = data.frames.length;
     if (!playingRef.current) return;
+
     clockRef.current += delta * speedRef.current;
     const fps = 10;
     if (clockRef.current < 1 / fps) return;
     clockRef.current = 0;
+
+    const prevFrame = currentFrameRef.current;
     timeRef.current = (timeRef.current + 1) % data.frames.length;
     currentFrameRef.current = Math.floor(timeRef.current);
     const f = data.frames[currentFrameRef.current];
-    if (groupRef.current && f) groupRef.current.position.set(f.x, 0, f.z);
+
+    if (groupRef.current && f) {
+      groupRef.current.position.set(f.x, 0, f.z);
+
+      // Calculate walk phase from movement
+      if (prevFrame !== currentFrameRef.current) {
+        const prevF = data.frames[prevFrame] || f;
+        const dx = f.x - prevF.x;
+        const dz = f.z - prevF.z;
+        const speed = Math.sqrt(dx * dx + dz * dz);
+        walkPhaseRef.current += speed * 8;
+
+        // Rotate player to face movement direction
+        if (speed > 0.01) {
+          groupRef.current.rotation.y = Math.atan2(dx, dz);
+        }
+      }
+    }
   });
 
   if (data.frames.length === 0) return null;
 
-  const baseColor = data.type === 'player' ? color : data.type === 'ball' ? '#ffffff' : '#f39c12';
-
-  // Check if current frame has keypoints for skeleton rendering
+  const baseColor = data.type === 'ball' ? '#ffffff' : data.type === 'cone' ? '#ff8c00' : color;
   const currentFrameIdx = Math.floor(timeRef.current);
   const currentFrame = data.frames[currentFrameIdx] || data.frames[0];
   const hasKeypoints = currentFrame?.keypoints && currentFrame.keypoints.length > 0;
@@ -199,17 +333,22 @@ function AnimatedObject({ data, color, playingRef, speedRef, timeRef, totalFrame
             </Text>
           </group>
         ) : (
-          <Avatar position={[0, 0, 0]} color={baseColor} label={data.label} />
+          <FootballPlayer
+            color={teamColor}
+            label={data.label || ''}
+            walkPhase={walkPhaseRef.current}
+          />
         )
       ) : data.type === 'ball' ? (
-        <Sphere position={[0, 0.1, 0]} color={baseColor} />
+        <Ball position={[0, 0.11, 0]} />
       ) : (
-        <ConeMesh position={[0, 0.06, 0]} />
+        <ConeMesh position={[0, 0.075, 0]} />
       )}
     </group>
   );
 }
 
+/* ─── Camera ─── */
 function CameraController({ view }: { view: string }) {
   const { camera } = useThree();
   useEffect(() => {
@@ -225,6 +364,7 @@ function CameraController({ view }: { view: string }) {
   return null;
 }
 
+/* ─── Icons ─── */
 const IconPlay = () => <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><polygon points="2,1 10,6 2,11"/></svg>;
 const IconPause = () => <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="1.5" width="2.5" height="9" rx="0.5"/><rect x="7" y="1.5" width="2.5" height="9" rx="0.5"/></svg>;
 const IconFullscreen = () => (
@@ -253,6 +393,7 @@ const IconReset = () => (
   </svg>
 );
 
+/* ─── Main Viewer ─── */
 export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; sceneUrl?: string }) {
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
@@ -310,9 +451,10 @@ export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; s
 
   return (
     <div ref={containerRef} className={`relative bg-gray-900 overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50' : 'w-full h-[65vh] rounded-xl'}`}>
-      <Canvas camera={{ position: [15, 12, 15], fov: 50 }}>
-        <ambientLight intensity={0.5} />
+      <Canvas camera={{ position: [15, 12, 15], fov: 50 }} shadows>
+        <ambientLight intensity={0.6} />
         <directionalLight position={[10, 15, 10]} intensity={0.8} castShadow />
+        <hemisphereLight args={['#87ceeb', '#2d5a3f', 0.3]} />
         <Field />
         {objects.map(obj => (
           <AnimatedObject key={obj.id} data={obj} color={TYPE_COLORS[obj.type] || '#888'}
@@ -346,8 +488,7 @@ export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; s
               <div className="h-full bg-white rounded-full" style={{ width: `${progress}%` }} />
             </div>
             <div className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white -ml-1.25 opacity-0 group-hover:opacity-100 transition-opacity duration-200 shadow-lg"
-              style={{ left: `${progress}%` }}
-            />
+              style={{ left: `${progress}%` }} />
           </div>
 
           <span className="text-[10px] text-gray-500 tabular-nums font-medium">
@@ -373,6 +514,23 @@ export default function Viewer3D({ objects, sceneUrl }: { objects: AnimData[]; s
           </button>
         ))}
       </div>
+
+      {/* Team legend */}
+      <div className="absolute left-3 top-3 flex flex-col gap-1">
+        {objects.filter(o => o.type === 'player').slice(0, 2).map((p, i) => {
+          const t = assignTeam(p.id, p.label);
+          return (
+            <div key={i} className="flex items-center gap-1.5 bg-black/40 rounded px-2 py-0.5">
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: t.jersey }} />
+              <span className="text-[10px] text-gray-300">{p.label || `Player ${i + 1}`}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
+
+const TYPE_COLORS: Record<string, string> = {
+  player: '#4FC3F7', ball: '#ffffff', cone: '#ff8c00',
+};

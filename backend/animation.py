@@ -3,6 +3,7 @@ import json
 import trimesh
 import numpy as np
 
+
 def build_scene(objects: list[dict], drill_id: str, scenes_dir: str, avatar_dir: str = "data/avatars") -> str:
     os.makedirs(scenes_dir, exist_ok=True)
     scene = trimesh.Scene()
@@ -12,9 +13,22 @@ def build_scene(objects: list[dict], drill_id: str, scenes_dir: str, avatar_dir:
     field.visual.face_colors = [0.2, 0.5, 0.2, 1.0]
     scene.add_geometry(field)
 
+    # Add field lines
+    center_line = trimesh.creation.box(extents=[0.04, 0.01, 20])
+    center_line.apply_translation([0, 0.0, 0])
+    center_line.visual.face_colors = [1.0, 1.0, 1.0, 0.3]
+    scene.add_geometry(center_line)
+
+    # Center circle
+    ring = trimesh.creation.annulus(r_min=4.5, r_max=4.54, height=0.01, sections=32)
+    ring.apply_translation([0, 0.005, 0])
+    ring.apply_rotation([np.pi / 2, 0, 0])
+    ring.visual.face_colors = [1.0, 1.0, 1.0, 0.3]
+    scene.add_geometry(ring)
+
     for obj in objects:
         if obj["type"] == "player":
-            _add_player_avatar(scene, obj, avatar_dir)
+            _add_player(scene, obj, avatar_dir)
         elif obj["type"] == "ball":
             _add_ball(scene, obj)
         elif obj["type"] == "cone":
@@ -24,87 +38,125 @@ def build_scene(objects: list[dict], drill_id: str, scenes_dir: str, avatar_dir:
     scene.export(output_path)
     return output_path
 
-AVATAR_MAP = {
-    "standard_red": (0.8, 0.2, 0.2),
-    "standard_blue": (0.2, 0.3, 0.8),
-    "standard_white": (0.9, 0.9, 0.9),
-    "standard_black": (0.2, 0.2, 0.2),
-    "standard_yellow": (0.9, 0.8, 0.1),
-    "standard_green": (0.2, 0.7, 0.2),
-    "lean_red": (0.7, 0.15, 0.15),
-    "lean_blue": (0.15, 0.25, 0.7),
-    "stocky_red": (0.75, 0.15, 0.15),
-    "stocky_blue": (0.15, 0.25, 0.75),
-    "youth_red": (1.0, 0.3, 0.3),
-    "youth_blue": (0.3, 0.4, 1.0),
-    "generic": (1.0, 0.6, 0.0),
-}
 
-def _select_avatar(obj: dict) -> tuple[str, tuple[float, float, float]]:
-    avatar_id = obj.get("avatar_id", "generic")
-    if avatar_id in AVATAR_MAP:
-        return avatar_id, AVATAR_MAP[avatar_id]
-    return "generic", AVATAR_MAP["generic"]
-
-def _create_avatar_mesh(avatar_id: str, color: tuple[float, float, float], avatar_dir: str, body_type: str = "standard") -> trimesh.Trimesh:
-    avatar_path = os.path.join(avatar_dir, f"{avatar_id}.glb")
-    if os.path.exists(avatar_path):
-        mesh = trimesh.load(avatar_path)
-        return mesh
-
-    scale_map = {"lean": (0.85, 1.0, 0.85), "stocky": (1.15, 0.9, 1.15), "youth": (0.7, 0.7, 0.7)}
-    scale = scale_map.get(body_type, (1.0, 1.0, 1.0))
-
-    body = trimesh.creation.cylinder(radius=0.15 * scale[0], height=0.6 * scale[1], sections=8)
-    body.apply_translation([0, 0.3 * scale[1], 0])
-    body.visual.face_colors = [*color, 1.0]
-
-    head = trimesh.primitives.Sphere(radius=0.1 * scale[0])
-    head.apply_translation([0, 0.7 * scale[1], 0])
-    head.visual.face_colors = [0.96, 0.82, 0.69, 1.0]
-
-    left_arm = trimesh.creation.cylinder(radius=0.03, height=0.3 * scale[1], sections=4)
-    left_arm.apply_translation([-0.15 * scale[0], 0.5 * scale[1], 0])
-    left_arm.visual.face_colors = [*color, 1.0]
-
-    right_arm = trimesh.creation.cylinder(radius=0.03, height=0.3 * scale[1], sections=4)
-    right_arm.apply_translation([0.15 * scale[0], 0.5 * scale[1], 0])
-    right_arm.visual.face_colors = [*color, 1.0]
-
-    left_leg = trimesh.creation.cylinder(radius=0.03, height=0.3 * scale[1], sections=4)
-    left_leg.apply_translation([-0.07 * scale[0], 0.15 * scale[1], 0])
-    left_leg.visual.face_colors = [0.3, 0.3, 0.3, 1.0]
-
-    right_leg = trimesh.creation.cylinder(radius=0.03, height=0.3 * scale[1], sections=4)
-    right_leg.apply_translation([0.07 * scale[0], 0.15 * scale[1], 0])
-    right_leg.visual.face_colors = [0.3, 0.3, 0.3, 1.0]
-
-    return body + head + left_arm + right_arm + left_leg + right_leg
-
-SKELETON_CONNECTIONS = [
-    (11, 12),  # shoulders
-    (11, 13),  # left upper arm
-    (13, 15),  # left forearm
-    (12, 14),  # right upper arm
-    (14, 16),  # right forearm
-    (11, 23),  # left torso
-    (12, 24),  # right torso
-    (23, 24),  # hips
-    (23, 25),  # left upper leg
-    (25, 27),  # left lower leg
-    (24, 26),  # right upper leg
-    (26, 28),  # right lower leg
+# ─── Team color assignments ───
+TEAM_PALETTES = [
+    {"jersey": [0.8, 0.13, 0.2], "shorts": [1.0, 1.0, 1.0], "socks": [0.8, 0.13, 0.2], "skin": [0.96, 0.82, 0.66]},
+    {"jersey": [0.13, 0.27, 0.67], "shorts": [1.0, 1.0, 1.0], "socks": [0.13, 0.27, 0.67], "skin": [0.96, 0.82, 0.66]},
+    {"jersey": [0.87, 0.67, 0.0], "shorts": [0.13, 0.13, 0.13], "socks": [0.87, 0.67, 0.0], "skin": [0.96, 0.82, 0.66]},
+    {"jersey": [0.13, 0.53, 0.2], "shorts": [1.0, 1.0, 1.0], "socks": [0.13, 0.53, 0.2], "skin": [0.96, 0.82, 0.66]},
+    {"jersey": [0.94, 0.94, 0.94], "shorts": [0.13, 0.13, 0.13], "socks": [0.94, 0.94, 0.94], "skin": [0.96, 0.82, 0.66]},
+    {"jersey": [0.13, 0.13, 0.13], "shorts": [1.0, 1.0, 1.0], "socks": [0.13, 0.13, 0.13], "skin": [0.96, 0.82, 0.66]},
 ]
 
 
-def _create_skeleton_mesh(keypoints: list[dict], color: tuple[float, float, float]) -> trimesh.Trimesh:
-    """Create a stick-figure skeleton from keypoints for GLB export."""
+def _assign_team(obj_id: str, label: str) -> dict:
+    """Consistent team assignment based on ID hash."""
+    h = 0
+    s = obj_id + label
+    for c in s:
+        h = ((h << 5) - h + ord(c)) & 0xFFFFFFFF
+    idx = abs(h) % len(TEAM_PALETTES)
+    return TEAM_PALETTES[idx]
+
+
+def _add_player(scene, obj, avatar_dir):
+    """Add a realistic football player mesh to the scene."""
+    team = _assign_team(obj["id"], obj.get("label", ""))
+    jersey = team["jersey"]
+    shorts = team["shorts"]
+    socks = team["socks"]
+    skin = team["skin"]
+
+    # Determine position from first frame
+    if not obj.get("frames"):
+        return
+    pos = obj["frames"][0]
+    x, z = pos["x"], pos["z"]
+
+    # Check for keypoints (skeleton rendering)
+    has_kp = pos.get("keypoints") and len(pos.get("keypoints", [])) > 0
+
+    if has_kp:
+        _add_skeleton(scene, pos["keypoints"], jersey, x, z)
+    else:
+        _add_procedural_player(scene, jersey, shorts, socks, skin, x, z)
+
+
+def _add_procedural_player(scene, jersey, shorts, socks, skin, x, z):
+    """Build a football player from basic shapes."""
     parts = []
 
+    # Torso (jersey)
+    torso = trimesh.creation.box(extents=[0.32, 0.4, 0.2])
+    torso.apply_translation([x, 0.85, z])
+    torso.visual.face_colors = [*jersey, 1.0]
+    parts.append(torso)
+
+    # Shorts
+    short = trimesh.creation.box(extents=[0.34, 0.16, 0.22])
+    short.apply_translation([x, 0.58, z])
+    short.visual.face_colors = [*shorts, 1.0]
+    parts.append(short)
+
+    # Head
+    head = trimesh.primitives.Sphere(radius=0.1, subdivisions=6)
+    head.apply_translation([x, 1.18, z])
+    head.visual.face_colors = [*skin, 1.0]
+    parts.append(head)
+
+    # Hair
+    hair = trimesh.primitives.Sphere(radius=0.1, subdivisions=6)
+    hair.apply_translation([x, 1.23, z - 0.02])
+    hair.visual.face_colors = [0.23, 0.16, 0.1, 1.0]
+    parts.append(hair)
+
+    # Arms (jersey upper + skin lower)
+    for side in [-1, 1]:
+        upper_arm = trimesh.creation.box(extents=[0.08, 0.16, 0.08])
+        upper_arm.apply_translation([x + side * 0.22, 0.87, z])
+        upper_arm.visual.face_colors = [*jersey, 1.0]
+        parts.append(upper_arm)
+
+        lower_arm = trimesh.creation.box(extents=[0.06, 0.12, 0.06])
+        lower_arm.apply_translation([x + side * 0.22, 0.73, z])
+        lower_arm.visual.face_colors = [*skin, 1.0]
+        parts.append(lower_arm)
+
+    # Legs (skin thigh + sock shin + boot)
+    for side in [-1, 1]:
+        thigh = trimesh.creation.box(extents=[0.1, 0.2, 0.1])
+        thigh.apply_translation([x + side * 0.1, 0.38, z])
+        thigh.visual.face_colors = [*skin, 1.0]
+        parts.append(thigh)
+
+        shin = trimesh.creation.box(extents=[0.08, 0.16, 0.08])
+        shin.apply_translation([x + side * 0.1, 0.2, z])
+        shin.visual.face_colors = [*socks, 1.0]
+        parts.append(shin)
+
+        boot = trimesh.creation.box(extents=[0.09, 0.06, 0.14])
+        boot.apply_translation([x + side * 0.1, 0.12, z + 0.02])
+        boot.visual.face_colors = [0.07, 0.07, 0.07, 1.0]
+        parts.append(boot)
+
+    combined = parts[0]
+    for part in parts[1:]:
+        combined = combined + part
+    scene.add_geometry(combined)
+
+
+def _add_skeleton(scene, keypoints, color, x, z):
+    """Add skeleton mesh from keypoints."""
+    parts = []
+    connections = [
+        (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
+        (11, 23), (12, 24), (23, 24), (23, 25), (25, 27), (24, 26), (26, 28),
+    ]
+
     # Joint spheres
-    joint_indices = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
-    for idx in joint_indices:
-        if idx < len(keypoints) and keypoints[idx]["visibility"] > 0.3:
+    for idx in [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]:
+        if idx < len(keypoints) and keypoints[idx].get("visibility", 0) > 0.3:
             kp = keypoints[idx]
             sphere = trimesh.primitives.Sphere(radius=0.03)
             sphere.apply_translation([kp["x"], kp["y"], kp["z"]])
@@ -112,11 +164,10 @@ def _create_skeleton_mesh(keypoints: list[dict], color: tuple[float, float, floa
             parts.append(sphere)
 
     # Bone cylinders
-    for a, b in SKELETON_CONNECTIONS:
+    for a, b in connections:
         if a < len(keypoints) and b < len(keypoints):
-            kpa = keypoints[a]
-            kpb = keypoints[b]
-            if kpa["visibility"] > 0.3 and kpb["visibility"] > 0.3:
+            kpa, kpb = keypoints[a], keypoints[b]
+            if kpa.get("visibility", 0) > 0.3 and kpb.get("visibility", 0) > 0.3:
                 start = np.array([kpa["x"], kpa["y"], kpa["z"]])
                 end = np.array([kpb["x"], kpb["y"], kpb["z"]])
                 midpoint = (start + end) / 2
@@ -128,42 +179,15 @@ def _create_skeleton_mesh(keypoints: list[dict], color: tuple[float, float, floa
                     parts.append(bone)
 
     if not parts:
-        # Fallback: tiny sphere if no valid keypoints
-        sphere = trimesh.primitives.Sphere(radius=0.05)
+        sphere = trimesh.primitives.Sphere(radius=0.15)
         sphere.visual.face_colors = [*color, 1.0]
-        return sphere
+        parts.append(sphere)
 
     combined = parts[0]
     for part in parts[1:]:
         combined = combined + part
-    return combined
+    scene.add_geometry(combined)
 
-
-def _add_player_avatar(scene, obj, avatar_dir):
-    # Check if we have keypoints for skeleton rendering
-    has_keypoints = False
-    if obj.get("frames") and len(obj["frames"]) > 0:
-        first_frame = obj["frames"][0]
-        if first_frame.get("keypoints") and len(first_frame["keypoints"]) > 0:
-            has_keypoints = True
-
-    if has_keypoints:
-        # Render skeleton from keypoints (use first frame's pose)
-        avatar_id, color = _select_avatar(obj)
-        keypoints = obj["frames"][0]["keypoints"]
-        mesh = _create_skeleton_mesh(keypoints, color)
-        pos = obj["frames"][0]
-        mesh.apply_translation([pos["x"], 0.0, pos["z"]])
-        scene.add_geometry(mesh)
-    else:
-        # Fallback: capsule avatar mesh
-        avatar_id, color = _select_avatar(obj)
-        body_type = avatar_id.split("_")[0] if "_" in avatar_id else "standard"
-        mesh = _create_avatar_mesh(avatar_id, color, avatar_dir, body_type)
-        if obj.get("frames"):
-            pos = obj["frames"][0]
-            mesh.apply_translation([pos["x"], 0.0, pos["z"]])
-        scene.add_geometry(mesh)
 
 def _add_ball(scene, obj):
     sphere = trimesh.primitives.Sphere(radius=0.11)
@@ -173,10 +197,16 @@ def _add_ball(scene, obj):
         sphere.apply_translation([pos["x"], 0.11, pos["z"]])
     scene.add_geometry(sphere)
 
+
 def _add_cone(scene, obj):
     cone = trimesh.creation.cone(radius=0.05, height=0.15, sections=8)
-    cone.visual.face_colors = [1.0, 0.6, 0.0, 1.0]
+    cone.visual.face_colors = [1.0, 0.55, 0.0, 1.0]
     if obj.get("frames"):
         pos = obj["frames"][0]
         cone.apply_translation([pos["x"], 0.075, pos["z"]])
-    scene.add_geometry(cone)
+    base = trimesh.creation.cylinder(radius=0.06, height=0.02, sections=8)
+    base.visual.face_colors = [1.0, 0.4, 0.0, 1.0]
+    if obj.get("frames"):
+        pos = obj["frames"][0]
+        base.apply_translation([pos["x"], 0.01, pos["z"]])
+    scene.add_geometry(cone + base)
