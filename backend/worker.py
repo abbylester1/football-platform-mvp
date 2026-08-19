@@ -11,6 +11,12 @@ from smoothing import smooth_trajectory
 from animation import build_scene
 from database import SessionLocal, Drill, DrillStatus
 
+# Progress store from router_process — updated live for the status endpoint
+try:
+    from router_process import _progress_store
+except ImportError:
+    _progress_store = {}
+
 # Ensure logging goes to stdout
 logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)
@@ -57,8 +63,24 @@ def project_keypoints_to_3d(
     return world_keypoints
 
 
+def _update_progress(drill_id: str, step: int, step_label: str, frames_processed: int = 0, total_frames: int = 0):
+    """Update the in-memory progress store so the status endpoint can return it."""
+    keyframes_total = max(1, total_frames // FRAME_INTERVAL)
+    percent = min(100, int((frames_processed / max(1, total_frames)) * 100)) if total_frames > 0 else 0
+    _progress_store[drill_id] = {
+        "step": step,
+        "step_label": step_label,
+        "frames_processed": frames_processed,
+        "total_frames": total_frames,
+        "keyframes_done": frames_processed // FRAME_INTERVAL,
+        "keyframes_total": keyframes_total,
+        "percent": percent,
+    }
+
+
 def process_drill_sync(drill_id: str, video_path: str) -> str:
     logger.info(f"[{drill_id}] Starting processing pipeline")
+    _update_progress(drill_id, 0, "Extracting Frames")
     
     if not os.path.exists(video_path):
         logger.error(f"[{drill_id}] Video file not found: {video_path}")
@@ -76,6 +98,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     logger.info(f"[{drill_id}] Video info: {total_frames} frames, {frame_width}x{frame_height}, {fps}fps")
+    _update_progress(drill_id, 0, "Extracting Frames", 0, total_frames)
     
     frame_count = 0
     processed_count = 0
@@ -97,6 +120,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         processed_count += 1
         if processed_count % 10 == 0:
             logger.info(f"[{drill_id}] Processed {processed_count} keyframes ({frame_count}/{total_frames} frames)")
+        _update_progress(drill_id, 1, "Detecting Players", frame_count, total_frames)
 
         detections = detect_objects(frame)
         tracked = track_objects(detections, frame_count)
@@ -137,6 +161,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
 
     cap.release()
     logger.info(f"[{drill_id}] Detection complete: {processed_count} keyframes, {len(all_detections)} detections")
+    _update_progress(drill_id, 2, "Tracking Ball", total_frames, total_frames)
 
     objects_by_id: dict[int, list] = {}
     for det in all_detections:
@@ -183,6 +208,8 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         homography = estimate_homography(cone_positions_2d[:4])
     logger.info(f"[{drill_id}] Homography: {'estimated' if homography is not None else 'none (using fallback)'}")
 
+    _update_progress(drill_id, 3, "Estimating Pose", total_frames, total_frames)
+
     detected_objects_list = []
     for tid, dets in objects_by_id.items():
         obj_type = dets[0]["type"]
@@ -208,6 +235,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             frames.append(frame_data)
 
         positions = [(f["x"], f["y"], f["z"]) for f in frames]
+        _update_progress(drill_id, 4, "Reconstructing Motion", total_frames, total_frames)
         smoothed = smooth_trajectory(positions)
         for i, f in enumerate(frames):
             f["x"], f["y"], f["z"] = smoothed[i]
@@ -221,6 +249,8 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             "label": label if obj_type != "player" else dets[0].get("label", label),
             "frames": frames,
         })
+
+    _update_progress(drill_id, 5, "Building 3D Scene", total_frames, total_frames)
 
     logger.info(f"[{drill_id}] Building 3D scene...")
     scene_path = build_scene(detected_objects_list, drill_id, SCENES_DIR)

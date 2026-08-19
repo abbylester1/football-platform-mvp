@@ -18,6 +18,9 @@ logger.propagate = False
 MODULE_VERSION = "v2-reset-and-debug"
 router = APIRouter()
 
+# In-memory progress store: drill_id -> {step, step_label, frames_processed, total_frames, percent}
+_progress_store: dict[str, dict] = {}
+
 
 def _run_processing(drill_id: str, video_path: str):
     import faulthandler
@@ -27,6 +30,7 @@ def _run_processing(drill_id: str, video_path: str):
         from worker import process_drill_sync
         result = process_drill_sync(drill_id, video_path)
         logger.info(f"Processing completed for drill {drill_id}, scene={result}")
+        _progress_store.pop(drill_id, None)
         db = SessionLocal()
         try:
             drill = db.query(Drill).filter(Drill.id == drill_id).first()
@@ -39,6 +43,7 @@ def _run_processing(drill_id: str, video_path: str):
             db.close()
     except Exception:
         logger.error(f"Processing failed for drill {drill_id}: {traceback.format_exc()}")
+        _progress_store.pop(drill_id, None)
         sys.stdout.flush()
         try:
             db = SessionLocal()
@@ -83,10 +88,15 @@ def process_status(drill_id: str):
         drill = db.query(Drill).filter(Drill.id == drill_id).first()
         if not drill:
             raise HTTPException(404, "Drill not found")
-        return {
+        result = {
             "status": drill.status,
             "scene_key": drill.scene_key or "",
         }
+        # Include progress if available
+        progress = _progress_store.get(drill_id)
+        if progress:
+            result["progress"] = progress
+        return result
     finally:
         db.close()
 
