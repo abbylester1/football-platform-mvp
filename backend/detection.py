@@ -129,18 +129,14 @@ def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: t
     # Apply NMS to remove overlapping duplicates
     detections = _nms(detections, iou_threshold=0.6)
     
-    # Debug: log top scores if detection count is suspiciously low
-    if len(detections) == 0 and _debug_scores:
+    # Debug: print top scores to stdout for Railway log visibility
+    import sys as _dbg_sys
+    if _debug_scores:
         _debug_scores.sort(key=lambda x: x[0], reverse=True)
-        top = _debug_scores[:5]
-        import logging as _log
-        _log.getLogger(__name__).info(
-            f"[detect] 0 detections. Top raw scores: {[(round(s,3), c) for s,c in top]} "
-            f"(total candidates with score>=0.05: {len(_debug_scores)})"
-        )
-    elif len(_debug_scores) == 0:
-        import logging as _log
-        _log.getLogger(__name__).info(f"[detect] 0 candidates with score>=0.05 — model returned nothing above noise floor")
+        top = _debug_scores[:10]
+        print(f"[POSTPROC-DEBUG] 0 dets above {confidence_threshold}. Top {len(top)} raw: {[(round(s,4), c) for s,c in top]} | total>=0.05: {len(_debug_scores)}", flush=True, file=_dbg_sys.stdout)
+    else:
+        print(f"[POSTPROC-DEBUG] 0 candidates with score>=0.05 — model output is all zeros or NaN", flush=True, file=_dbg_sys.stdout)
     
     return detections
 
