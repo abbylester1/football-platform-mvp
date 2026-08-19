@@ -80,7 +80,7 @@ def _update_progress(drill_id: str, step: int, step_label: str, frames_processed
 
 def process_drill_sync(drill_id: str, video_path: str) -> str:
     logger.info(f"[{drill_id}] Starting processing pipeline")
-    _update_progress(drill_id, 0, "Extracting Frames")
+    _update_progress(drill_id, 0, "Analyzing Video")
     
     if not os.path.exists(video_path):
         logger.error(f"[{drill_id}] Video file not found: {video_path}")
@@ -88,17 +88,28 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
     
     logger.info(f"[{drill_id}] Video file exists, size={os.path.getsize(video_path)} bytes")
     
+    # === PHASE 1: Analyze the video to understand the scene ===
+    from video_analysis import analyze_video
+    scene = analyze_video(video_path)
+    logger.info(
+        f"[{drill_id}] Scene analysis: camera={scene.camera_angle} "
+        f"({scene.camera_confidence:.0%}), cones={len(scene.cone_positions)}, "
+        f"expected_players={scene.expected_players} ({scene.player_confidence:.0%}), "
+        f"drill_area={'yes' if scene.drill_polygon is not None else 'no'}, "
+        f"confidence={scene.analysis_confidence:.0%}"
+    )
+    _update_progress(drill_id, 0, "Extracting Frames", 0, scene.total_frames)
+    
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logger.error(f"[{drill_id}] Failed to open video with cv2")
         raise RuntimeError(f"Cannot open video: {video_path}")
     
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = scene.total_frames
+    frame_width = scene.frame_width
+    frame_height = scene.frame_height
+    fps = scene.fps
     logger.info(f"[{drill_id}] Video info: {total_frames} frames, {frame_width}x{frame_height}, {fps}fps")
-    _update_progress(drill_id, 0, "Extracting Frames", 0, total_frames)
     
     frame_count = 0
     processed_count = 0
@@ -120,9 +131,26 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         processed_count += 1
         if processed_count % 10 == 0:
             logger.info(f"[{drill_id}] Processed {processed_count} keyframes ({frame_count}/{total_frames} frames)")
-        _update_progress(drill_id, 1, "Detecting Players", frame_count, total_frames)
+        _update_progress(drill_id, 2, "Detecting Players", frame_count, total_frames)
 
         detections = detect_objects(frame)
+        
+        # === Filter: only keep detections inside the drill area ===
+        if scene.drill_polygon is not None and detections:
+            import cv2 as _cv2
+            filtered = []
+            for d in detections:
+                bbox = d["bbox"]
+                cx = (bbox[0] + bbox[2]) / 2
+                cy = (bbox[1] + bbox[3]) / 2
+                inside = _cv2.pointPolygonTest(
+                    scene.drill_polygon, (float(cx), float(cy)), False
+                ) >= 0
+                if inside or d["type"] == "ball":  # Always keep ball
+                    filtered.append(d)
+            logger.debug(f"[{drill_id}] Frame {frame_count}: {len(detections)} detections -> {len(filtered)} inside drill area")
+            detections = filtered
+        
         tracked = track_objects(detections, frame_count)
 
         for obj in tracked:
@@ -161,7 +189,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
 
     cap.release()
     logger.info(f"[{drill_id}] Detection complete: {processed_count} keyframes, {len(all_detections)} detections")
-    _update_progress(drill_id, 2, "Tracking Ball", total_frames, total_frames)
+    _update_progress(drill_id, 3, "Tracking Ball", total_frames, total_frames)
 
     objects_by_id: dict[int, list] = {}
     for det in all_detections:
@@ -180,13 +208,19 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
     objects_by_id = {tid: dets for tid, dets in objects_by_id.items() if len(dets) >= min_track_length}
     logger.info(f"[{drill_id}] After filtering (< {min_track_length} frames): {len(objects_by_id)} objects")
 
-    # Cap total objects: real training drill has ~3-20 players, max 8 cones, 1 ball
+    # Cap total objects using scene analysis as guide
     players = {tid: dets for tid, dets in objects_by_id.items() if dets[0]["type"] == "player"}
     non_players = {tid: dets for tid, dets in objects_by_id.items() if dets[0]["type"] != "player"}
-    if len(players) > 15:
-        # Keep players with most detections (most tracked)
+    
+    # Use expected_players from analysis, but allow 50% headroom for tracking noise
+    max_players = scene.expected_players * 2 if scene.expected_players > 0 else 8
+    max_players = max(max_players, 3)  # At least 3
+    max_players = min(max_players, 15)  # Never more than 15
+    
+    if len(players) > max_players:
         sorted_pids = sorted(players.keys(), key=lambda tid: len(players[tid]), reverse=True)
-        players = {tid: players[tid] for tid in sorted_pids[:15]}
+        logger.info(f"[{drill_id}] Capping players from {len(players)} to {max_players} (expected: {scene.expected_players})")
+        players = {tid: players[tid] for tid in sorted_pids[:max_players]}
         logger.info(f"[{drill_id}] Capped players from {len(sorted_pids)} to 25")
     if len(non_players) > 10:
         sorted_nids = sorted(non_players.keys(), key=lambda tid: len(non_players[tid]), reverse=True)
@@ -208,7 +242,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         homography = estimate_homography(cone_positions_2d[:4])
     logger.info(f"[{drill_id}] Homography: {'estimated' if homography is not None else 'none (using fallback)'}")
 
-    _update_progress(drill_id, 3, "Estimating Pose", total_frames, total_frames)
+    _update_progress(drill_id, 4, "Estimating Pose", total_frames, total_frames)
 
     detected_objects_list = []
     for tid, dets in objects_by_id.items():
@@ -235,7 +269,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             frames.append(frame_data)
 
         positions = [(f["x"], f["y"], f["z"]) for f in frames]
-        _update_progress(drill_id, 4, "Reconstructing Motion", total_frames, total_frames)
+        _update_progress(drill_id, 5, "Reconstructing Motion", total_frames, total_frames)
         smoothed = smooth_trajectory(positions)
         for i, f in enumerate(frames):
             f["x"], f["y"], f["z"] = smoothed[i]
@@ -250,7 +284,7 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             "frames": frames,
         })
 
-    _update_progress(drill_id, 5, "Building 3D Scene", total_frames, total_frames)
+    _update_progress(drill_id, 6, "Building 3D Scene", total_frames, total_frames)
 
     logger.info(f"[{drill_id}] Building 3D scene...")
     scene_path = build_scene(detected_objects_list, drill_id, SCENES_DIR)
@@ -262,6 +296,15 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
         if drill:
             drill.detected_objects = detected_objects_list
             drill.scene_key = os.path.basename(scene_path)
+            drill.scene_analysis = {
+                "camera_angle": scene.camera_angle,
+                "camera_confidence": round(scene.camera_confidence, 2),
+                "expected_players": scene.expected_players,
+                "player_confidence": round(scene.player_confidence, 2),
+                "cones_detected": len(scene.cone_positions),
+                "drill_area": scene.drill_area_bbox is not None,
+                "analysis_confidence": round(scene.analysis_confidence, 2),
+            }
             drill.status = DrillStatus.REVIEW.value
             db.commit()
             logger.info(f"[{drill_id}] Drill saved with status REVIEW")
