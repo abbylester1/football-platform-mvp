@@ -6,6 +6,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-RUN curl -sL https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx -o /app/yolo11n.onnx
-ENV STORAGE_DIR=/data YOLO_MODEL=/app/yolo11n.onnx
+# Pre-download YOLO models (detection + pose) to avoid cold-start latency
+RUN python -c "from ultralytics import YOLO; YOLO('yolo11s.pt'); YOLO('yolo11s-pose.pt')"
+ENV STORAGE_DIR=/data
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

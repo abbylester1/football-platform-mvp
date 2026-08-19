@@ -11,6 +11,5 @@ DATABASE_URL = f"sqlite:///{os.path.join(STORAGE_DIR, 'football.db')}"
 MAX_UPLOAD_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
 ALLOWED_EXTENSIONS = {".mp4", ".mov"}
 
-YOLO_MODEL = os.environ.get("YOLO_MODEL", os.path.join(BASE_DIR, "yolo11n.onnx"))
-DETECTION_CONFIDENCE = 0.3
+DETECTION_CONFIDENCE = 0.25  # Lower threshold — ultralytics NMS handles false positives
 FRAME_INTERVAL = 5  # Process every Nth frame

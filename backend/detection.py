@@ -1,298 +1,255 @@
+"""Player/ball detection using Ultralytics YOLO.
+
+Uses the official ultralytics library for correct preprocessing (letterboxing),
+DFL bbox decoding, and NMS — eliminating all manual ONNX postprocessing bugs.
+
+Model: YOLO11s (small) for better accuracy on distant/small players in sports video.
+Also supports YOLO11-pose for joint keypoint extraction in a single forward pass.
+"""
+
+import os
+import logging
 import cv2
-import pytesseract
-import onnxruntime
 import numpy as np
 from typing import Optional, List, Dict
-from config import YOLO_MODEL, DETECTION_CONFIDENCE
-import os
+
+logger = logging.getLogger(__name__)
 
 # Pose estimation can be disabled via environment variable
 POSE_ENABLED = os.environ.get("POSE_ESTIMATION_ENABLED", "true").lower() == "true"
 
-# Lazy import to handle environments where pose_estimation might fail
-_extract_pose_keypoints = None
-_pose_checked = False
+# Lazy-loaded YOLO models (singleton)
+_detect_model = None
+_pose_model = None
 
 
-def _get_pose_extractor():
-    """Lazy import of pose estimation to avoid import-time failures."""
-    global _extract_pose_keypoints, _pose_checked
-    if _pose_checked:
-        return _extract_pose_keypoints
-    _pose_checked = True
+def _get_detect_model():
+    """Load YOLO detection model (lazy singleton)."""
+    global _detect_model
+    if _detect_model is not None:
+        return _detect_model
+
+    try:
+        from ultralytics import YOLO
+
+        # Try yolo11s.pt first (better accuracy), fall back to yolo11n.pt
+        model_path = os.environ.get("YOLO_DETECT_MODEL", "yolo11s.pt")
+        if not os.path.exists(model_path):
+            model_path = "yolo11n.pt"
+
+        logger.info(f"[detect] Loading YOLO detection model: {model_path}")
+        _detect_model = YOLO(model_path)
+        logger.info(f"[detect] Detection model loaded: {_detect_model.model_name if hasattr(_detect_model, 'model_name') else model_path}")
+        return _detect_model
+    except ImportError:
+        logger.error("[detect] ultralytics not installed! pip install ultralytics")
+        raise
+    except Exception as e:
+        logger.error(f"[detect] Failed to load YOLO model: {e}")
+        raise
+
+
+def _get_pose_model():
+    """Load YOLO pose model (lazy singleton). Returns None if not available."""
+    global _pose_model
+    if _pose_model is not None:
+        return _pose_model
     if not POSE_ENABLED:
         return None
+
     try:
-        from pose_estimation import extract_pose_keypoints
-        _extract_pose_keypoints = extract_pose_keypoints
-        return _extract_pose_keypoints
-    except Exception:
+        from ultralytics import YOLO
+
+        model_path = os.environ.get("YOLO_POSE_MODEL", "yolo11s-pose.pt")
+        if not os.path.exists(model_path):
+            model_path = "yolo11n-pose.pt"
+
+        logger.info(f"[pose] Loading YOLO pose model: {model_path}")
+        _pose_model = YOLO(model_path)
+        logger.info(f"[pose] Pose model loaded")
+        return _pose_model
+    except Exception as e:
+        logger.warning(f"[pose] Failed to load pose model: {e}. Pose estimation disabled.")
         return None
 
-_session = None
-_input_name = None
 
-def _get_session():
-    global _session, _input_name
-    if _session is None:
-        import logging as _log
-        onnx_path = YOLO_MODEL.replace(".pt", ".onnx")
-        _log.getLogger(__name__).info(f"[detect] Loading YOLO model from: {onnx_path}")
-        _log.getLogger(__name__).info(f"[detect] Model exists: {__import__('os').path.exists(onnx_path)}")
-        _session = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
-        _log.getLogger(__name__).info(f"[detect] Model loaded. Input: {_session.get_inputs()[0].name}, shape={_session.get_inputs()[0].shape}")
-        _input_name = _session.get_inputs()[0].name
-    return _session
-
-COCO_CLASS_MAP = {
+# COCO class mapping for our use case
+# Class 0 = person, Class 32 = sports ball
+COCO_CLASSES = {
     0: "player",
     32: "ball",
 }
 
-def _preprocess(frame: np.ndarray) -> tuple:
-    """Preprocess frame for YOLO with letterboxing to preserve aspect ratio."""
-    h, w = frame.shape[:2]
-    target = 640
-    scale = min(target / w, target / h)
-    new_w, new_h = int(w * scale), int(h * scale)
-    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    # Pad with gray (114) to maintain aspect ratio
-    canvas = np.full((target, target, 3), 114, dtype=np.uint8)
-    dx = (target - new_w) // 2
-    dy = (target - new_h) // 2
-    canvas[dy:dy + new_h, dx:dx + new_w] = resized
-    img = canvas[:, :, ::-1].transpose(2, 0, 1)
-    img = np.ascontiguousarray(img).astype(np.float32) / 255.0
-    return np.expand_dims(img, axis=0), scale, (dx, dy)
+# Additional classes we want to detect (sports-related)
+DETECT_CLASSES = [0, 32]  # person, sports ball
 
-def _nms(detections: List[Dict], iou_threshold: float = 0.5) -> List[Dict]:
-    """Non-Maximum Suppression: remove overlapping boxes of the same type.
-    
-    Keeps the highest-confidence detection when two boxes overlap beyond
-    the iou_threshold. Applied separately per object type (players, balls, cones).
+
+def detect_objects(
+    frame: Optional[np.ndarray],
+    confidence_threshold: float = 0.25,
+    img_size: int = 640,
+) -> List[Dict]:
+    """Detect players, balls, and other objects in a frame using YOLO.
+
+    Args:
+        frame: BGR image (H, W, 3)
+        confidence_threshold: Minimum detection confidence (0-1)
+        img_size: Input image size for the model
+
+    Returns:
+        List of detection dicts with keys: type, bbox, confidence, keypoints
     """
-    if not detections:
-        return detections
-
-    # Group by type
-    by_type: Dict[str, List[Dict]] = {}
-    for d in detections:
-        by_type.setdefault(d["type"], []).append(d)
-
-    result = []
-    for obj_type, dets in by_type.items():
-        # Sort by confidence descending
-        dets.sort(key=lambda d: d["confidence"], reverse=True)
-        keep = []
-        suppressed = set()
-        for i, d in enumerate(dets):
-            if i in suppressed:
-                continue
-            keep.append(d)
-            for j in range(i + 1, len(dets)):
-                if j in suppressed:
-                    continue
-                # Compute IoU
-                bi, bj = d["bbox"], dets[j]["bbox"]
-                ix1 = max(bi[0], bj[0])
-                iy1 = max(bi[1], bj[1])
-                ix2 = min(bi[2], bj[2])
-                iy2 = min(bi[3], bj[3])
-                inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-                area_i = (bi[2] - bi[0]) * (bi[3] - bi[1])
-                area_j = (bj[2] - bj[0]) * (bj[3] - bj[1])
-                union = area_i + area_j - inter
-                iou_val = inter / union if union > 0 else 0.0
-                if iou_val > iou_threshold:
-                    suppressed.add(j)
-        result.extend(keep)
-    return result
-
-
-def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: tuple, scale: float = 1.0, pad: tuple = (0, 0)) -> List[Dict]:
-    """Postprocess YOLO output with letterbox-aware coordinate remapping."""
-    arr = outputs[0][0]
-    boxes = arr[:4, :].T
-    scores = arr[4:, :].T
-    detections = []
-    import logging
-    _debug_scores = []
-    for i in range(scores.shape[0]):
-        max_score = scores[i].max()
-        cls_id = int(scores[i].argmax())
-        if max_score >= 0.05:
-            _debug_scores.append((float(max_score), int(cls_id)))
-        if max_score < confidence_threshold:
-            continue
-        mapped_type = COCO_CLASS_MAP.get(cls_id)
-        if mapped_type is None:
-            continue
-        x, y, w, h = boxes[i]
-        # Remap from letterboxed 640x640 coordinates back to original frame
-        x1 = ((x - w / 2) - pad[0]) / scale
-        y1 = ((y - h / 2) - pad[1]) / scale
-        x2 = ((x + w / 2) - pad[0]) / scale
-        y2 = ((y + h / 2) - pad[1]) / scale
-        detections.append({
-            "type": mapped_type,
-            "bbox": [x1, y1, x2, y2],
-            "confidence": float(max_score),
-        })
-    # Apply NMS to remove overlapping duplicates
-    detections = _nms(detections, iou_threshold=0.6)
-    
-    # Debug: print top scores to stdout for Railway log visibility
-    import sys as _dbg_sys
-    if _debug_scores:
-        _debug_scores.sort(key=lambda x: x[0], reverse=True)
-        top = _debug_scores[:10]
-        print(f"[POSTPROC-DEBUG] 0 dets above {confidence_threshold}. Top {len(top)} raw: {[(round(s,4), c) for s,c in top]} | total>=0.05: {len(_debug_scores)}", flush=True, file=_dbg_sys.stdout)
-    else:
-        print(f"[POSTPROC-DEBUG] 0 candidates with score>=0.05 — model output is all zeros or NaN", flush=True, file=_dbg_sys.stdout)
-    
-    return detections
-
-def read_jersey_number(frame: np.ndarray, bbox: list[float]) -> str:
-    x1, y1, x2, y2 = [int(v) for v in bbox]
-    h = y2 - y1
-    crop_top = y1
-    crop_bot = y1 + int(h * 0.35)
-    crop_left = max(0, x1)
-    crop_right = min(frame.shape[1], x2)
-    if crop_bot <= crop_top or crop_right <= crop_left:
-        return ""
-    roi = frame[crop_top:crop_bot, crop_left:crop_right]
-    if roi.size == 0:
-        return ""
-    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    config = "--psm 7 -c tessedit_char_whitelist=0123456789"
-    text = pytesseract.image_to_string(thresh, config=config).strip()
-    return text
-
-
-class MotionDetector:
-    """Background subtraction detector for aerial/overhead sports footage.
-
-    When YOLO fails (players too small for the model), this uses
-    background subtraction to find moving blobs on the field.
-    """
-
-    def __init__(self, history: int = 50, var_threshold: float = 16.0, min_area: int = 200):
-        self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(
-            history=history, varThreshold=var_threshold, detectShadows=False
-        )
-        self.min_area = min_area
-        self._initialized = False
-
-    def detect(self, frame: np.ndarray) -> List[Dict]:
-        mask = self.bg_subtractor.apply(frame)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=3)
-        mask = cv2.dilate(mask, kernel, iterations=1)
-
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        detections = []
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < self.min_area:
-                continue
-            x, y, w, h = cv2.boundingRect(cnt)
-            aspect = w / h if h > 0 else 0
-            if aspect < 0.2 or aspect > 5.0:
-                continue
-
-            obj_type = self._classify_blob(frame, x, y, w, h, area)
-            cx, cy = x + w / 2, y + h / 2
-            detections.append({
-                "type": obj_type,
-                "bbox": [float(x), float(y), float(x + w), float(y + h)],
-                "confidence": min(1.0, area / 200.0),
-            })
-        return detections
-
-    def _classify_blob(self, frame: np.ndarray, x: int, y: int, w: int, h: int, area: float) -> str:
-        roi = frame[y:y + h, x:x + w]
-        if roi.size == 0:
-            return "player"
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        mean_h, mean_s, mean_v = cv2.mean(hsv)[:3]
-        white_mask = cv2.inRange(hsv, (0, 0, 180), (180, 40, 255))
-        white_ratio = (white_mask > 0).sum() / max(roi.shape[0] * roi.shape[1], 1)
-        if white_ratio > 0.5 and area < 150:
-            return "ball"
-        orange_mask = cv2.inRange(hsv, (5, 80, 80), (20, 255, 255))
-        orange_ratio = (orange_mask > 0).sum() / max(roi.shape[0] * roi.shape[1], 1)
-        if orange_ratio > 0.6:
-            return "cone"
-        return "player"
-
-
-_motion_detector: Optional[MotionDetector] = None
-
-
-def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DETECTION_CONFIDENCE) -> List[Dict]:
-    import sys as _sys
     if frame is None:
         return []
 
-    session = _get_session()
-    input_tensor, scale, (pad_x, pad_y) = _preprocess(frame)
-    outputs = session.run(None, {_input_name: input_tensor})
-    yolo_detections = _postprocess(outputs, confidence_threshold, frame.shape[:2], scale, (pad_x, pad_y))
-    
-    # Debug: log first few frames to diagnose detection issues
-    if not hasattr(detect_objects, '_frame_count'):
-        detect_objects._frame_count = 0
-    detect_objects._frame_count += 1
-    if detect_objects._frame_count <= 3:
-        print(f"[DETECT-DEBUG] frame #{detect_objects._frame_count}: input={input_tensor.shape}, scale={scale:.3f}, pad=({pad_x},{pad_y}), output={outputs[0].shape if outputs else 'none'}, raw_dets={len(yolo_detections)}", flush=True, file=_sys.stdout)
-        for d in yolo_detections[:5]:
-            print(f"[DETECT-DEBUG]   {d['type']} conf={d['confidence']:.3f} bbox={[round(x,1) for x in d['bbox']]}", flush=True, file=_sys.stdout)
+    model = _get_detect_model()
 
-    # Hard cap: real football has at most 22 players + 1 ball + a few cones
-    players = [d for d in yolo_detections if d["type"] == "player"]
-    balls = [d for d in yolo_detections if d["type"] == "ball"]
-    cones = [d for d in yolo_detections if d["type"] == "cone"]
-    if len(players) > 12:
-        players.sort(key=lambda d: d["confidence"], reverse=True)
-        players = players[:12]
-    if len(balls) > 2:
-        balls.sort(key=lambda d: d["confidence"], reverse=True)
-        balls = balls[:2]
-    if len(cones) > 8:
-        cones.sort(key=lambda d: d["confidence"], reverse=True)
-        cones = cones[:8]
-    yolo_detections = players + balls + cones
+    try:
+        # Run inference with ultralytics — handles letterboxing, DFL, NMS internally
+        results = model(
+            frame,
+            conf=confidence_threshold,
+            iou=0.5,
+            imgsz=img_size,
+            classes=DETECT_CLASSES,  # Only detect person (0) and sports ball (32)
+            verbose=False,
+        )
 
-    # Extract pose keypoints for each detected player (if enabled)
-    if POSE_ENABLED:
-        pose_extractor = _get_pose_extractor()
-        if pose_extractor:
-            for det in yolo_detections:
-                if det["type"] == "player":
-                    try:
-                        keypoints = pose_extractor(frame, tuple(det["bbox"]))
-                        det["keypoints"] = keypoints
-                    except Exception:
-                        det["keypoints"] = None
+        detections = []
+        if results and len(results) > 0:
+            result = results[0]
+            boxes = result.boxes
 
-    return yolo_detections
+            if boxes is not None and len(boxes) > 0:
+                for i in range(len(boxes)):
+                    cls_id = int(boxes.cls[i])
+                    conf = float(boxes.conf[i])
+                    xyxy = boxes.xyxy[i].cpu().numpy()
+
+                    obj_type = COCO_CLASSES.get(cls_id)
+                    if obj_type is None:
+                        continue
+
+                    x1, y1, x2, y2 = xyxy.tolist()
+                    detections.append({
+                        "type": obj_type,
+                        "bbox": [x1, y1, x2, y2],
+                        "confidence": conf,
+                    })
+
+        # Extract pose keypoints using separate pose model (if enabled)
+        if POSE_ENABLED and detections:
+            pose_model = _get_pose_model()
+            if pose_model is not None:
+                _extract_pose_keypoints(frame, detections, pose_model, img_size)
+            else:
+                # Fall back to MediaPipe if available
+                _extract_mediapipe_keypoints(frame, detections)
+
+        return detections
+
+    except Exception as e:
+        logger.error(f"[detect] Detection failed: {e}")
+        return []
 
 
-def reset_motion_detector():
-    global _motion_detector
-    _motion_detector = None
+def _extract_pose_keypoints(
+    frame: np.ndarray,
+    detections: List[Dict],
+    pose_model,
+    img_size: int = 640,
+):
+    """Extract keypoints using YOLO11-pose model on cropped player regions."""
+    for det in detections:
+        if det["type"] != "player":
+            continue
+
+        x1, y1, x2, y2 = [int(v) for v in det["bbox"]]
+        h_frame, w_frame = frame.shape[:2]
+
+        # Clamp to frame
+        x1 = max(0, min(x1, w_frame - 1))
+        y1 = max(0, min(y1, h_frame - 1))
+        x2 = max(x1 + 1, min(x2, w_frame))
+        y2 = max(y1 + 1, min(y2, h_frame))
+
+        crop = frame[y1:y2, x1:x2]
+        if crop.size == 0:
+            continue
+
+        try:
+            results = pose_model(crop, conf=0.3, imgsz=img_size, verbose=False)
+            if results and len(results) > 0 and results[0].keypoints is not None:
+                kps = results[0].keypoints
+                if kps is not None and len(kps) > 0:
+                    # Get first person's keypoints
+                    kp_xy = kps.xy[0].cpu().numpy()  # (17, 2) or (N, 2)
+                    kp_conf = kps.conf[0].cpu().numpy() if kps.conf is not None else np.ones(len(kp_xy))
+
+                    crop_h, crop_w = crop.shape[:2]
+                    keypoints = []
+                    for j in range(len(kp_xy)):
+                        kp = {
+                            "x": float(kp_xy[j][0]) / crop_w if crop_w > 0 else 0,
+                            "y": float(kp_xy[j][1]) / crop_h if crop_h > 0 else 0,
+                            "z": 0.0,
+                            "visibility": float(kp_conf[j]) if j < len(kp_conf) else 0.0,
+                        }
+                        keypoints.append(kp)
+
+                    det["keypoints"] = keypoints
+        except Exception as e:
+            logger.debug(f"[pose] Keypoint extraction failed for crop: {e}")
+
+
+def _extract_mediapipe_keypoints(frame: np.ndarray, detections: List[Dict]):
+    """Fallback: extract keypoints using MediaPipe on cropped player regions."""
+    try:
+        from pose_estimation import extract_pose_keypoints
+        for det in detections:
+            if det["type"] != "player":
+                continue
+            try:
+                keypoints = extract_pose_keypoints(frame, tuple(det["bbox"]))
+                if keypoints:
+                    det["keypoints"] = keypoints
+            except Exception:
+                pass
+    except ImportError:
+        pass
+
+
+def read_jersey_number(frame: np.ndarray, bbox: list) -> str:
+    """Read jersey number from the upper portion of a player bounding box."""
+    try:
+        import pytesseract
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        h = y2 - y1
+        crop_top = y1
+        crop_bot = y1 + int(h * 0.35)
+        crop_left = max(0, x1)
+        crop_right = min(frame.shape[1], x2)
+        if crop_bot <= crop_top or crop_right <= crop_left:
+            return ""
+        roi = frame[crop_top:crop_bot, crop_left:crop_right]
+        if roi.size == 0:
+            return ""
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        config = "--psm 7 -c tessedit_char_whitelist=0123456789"
+        text = pytesseract.image_to_string(thresh, config=config).strip()
+        return text
+    except Exception:
+        return ""
 
 
 def reset_detection():
-    """Reset all detection state (motion detector + pose estimator)."""
-    reset_motion_detector()
-    if POSE_ENABLED:
-        try:
-            from pose_estimation import reset_pose
-            reset_pose()
-        except Exception:
-            pass
+    """Reset all detection state (call between videos)."""
+    global _detect_model, _pose_model
+    # Don't clear the models — they're heavy to reload
+    # Just reset any per-video state if needed
+    try:
+        from pose_estimation import reset_pose
+        reset_pose()
+    except Exception:
+        pass

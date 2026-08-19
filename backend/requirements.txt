@@ -9,8 +9,7 @@ numpy
 scipy
 trimesh
 Pillow
-onnxruntime
-onnx
+ultralytics>=8.3.0
 pytesseract
 mediapipe>=0.10.14,<1.0
 
