@@ -35,8 +35,12 @@ _input_name = None
 def _get_session():
     global _session, _input_name
     if _session is None:
+        import logging as _log
         onnx_path = YOLO_MODEL.replace(".pt", ".onnx")
+        _log.getLogger(__name__).info(f"[detect] Loading YOLO model from: {onnx_path}")
+        _log.getLogger(__name__).info(f"[detect] Model exists: {__import__('os').path.exists(onnx_path)}")
         _session = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+        _log.getLogger(__name__).info(f"[detect] Model loaded. Input: {_session.get_inputs()[0].name}, shape={_session.get_inputs()[0].shape}")
         _input_name = _session.get_inputs()[0].name
     return _session
 
@@ -100,11 +104,15 @@ def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: t
     boxes = arr[:4, :].T
     scores = arr[4:, :].T
     detections = []
+    import logging
+    _debug_scores = []
     for i in range(scores.shape[0]):
         max_score = scores[i].max()
+        cls_id = int(scores[i].argmax())
+        if max_score >= 0.05:
+            _debug_scores.append((float(max_score), int(cls_id)))
         if max_score < confidence_threshold:
             continue
-        cls_id = int(scores[i].argmax())
         mapped_type = COCO_CLASS_MAP.get(cls_id)
         if mapped_type is None:
             continue
@@ -120,6 +128,20 @@ def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: t
         })
     # Apply NMS to remove overlapping duplicates
     detections = _nms(detections, iou_threshold=0.6)
+    
+    # Debug: log top scores if detection count is suspiciously low
+    if len(detections) == 0 and _debug_scores:
+        _debug_scores.sort(key=lambda x: x[0], reverse=True)
+        top = _debug_scores[:5]
+        import logging as _log
+        _log.getLogger(__name__).info(
+            f"[detect] 0 detections. Top raw scores: {[(round(s,3), c) for s,c in top]} "
+            f"(total candidates with score>=0.05: {len(_debug_scores)})"
+        )
+    elif len(_debug_scores) == 0:
+        import logging as _log
+        _log.getLogger(__name__).info(f"[detect] 0 candidates with score>=0.05 — model returned nothing above noise floor")
+    
     return detections
 
 def read_jersey_number(frame: np.ndarray, bbox: list[float]) -> str:
@@ -211,6 +233,18 @@ def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DE
     input_tensor = _preprocess(frame)
     outputs = session.run(None, {_input_name: input_tensor})
     yolo_detections = _postprocess(outputs, confidence_threshold, frame.shape[:2])
+    
+    # Log debug info for first few frames
+    if not hasattr(detect_objects, '_frame_count'):
+        detect_objects._frame_count = 0
+    detect_objects._frame_count += 1
+    if detect_objects._frame_count <= 3:
+        import logging as _log
+        _log.getLogger(__name__).info(
+            f"[detect] frame #{detect_objects._frame_count}: input={input_tensor.shape}, "
+            f"output shape={outputs[0].shape if outputs else 'none'}, "
+            f"detections={len(yolo_detections)}"
+        )
 
     # Motion detector fallback DISABLED — it creates ghost players from
     # background noise in overhead footage. Better to have 0 detections
