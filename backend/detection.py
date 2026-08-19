@@ -226,6 +226,7 @@ _motion_detector: Optional[MotionDetector] = None
 
 
 def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DETECTION_CONFIDENCE) -> List[Dict]:
+    import sys as _sys
     if frame is None:
         return []
 
@@ -234,23 +235,14 @@ def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DE
     outputs = session.run(None, {_input_name: input_tensor})
     yolo_detections = _postprocess(outputs, confidence_threshold, frame.shape[:2])
     
-    # Log debug info for first few frames
+    # Debug: log first few frames to diagnose detection issues
     if not hasattr(detect_objects, '_frame_count'):
         detect_objects._frame_count = 0
     detect_objects._frame_count += 1
     if detect_objects._frame_count <= 3:
-        import logging as _log
-        _log.getLogger(__name__).info(
-            f"[detect] frame #{detect_objects._frame_count}: input={input_tensor.shape}, "
-            f"output shape={outputs[0].shape if outputs else 'none'}, "
-            f"detections={len(yolo_detections)}"
-        )
-
-    # Motion detector fallback DISABLED — it creates ghost players from
-    # background noise in overhead footage. Better to have 0 detections
-    # in a frame than fake players that fragment into ghost tracks.
-    # if not yolo_detections:
-    #     ...motion detector...
+        print(f"[DETECT-DEBUG] frame #{detect_objects._frame_count}: input={input_tensor.shape}, output={outputs[0].shape if outputs else 'none'}, raw_dets={len(yolo_detections)}", flush=True, file=_sys.stdout)
+        for d in yolo_detections[:5]:
+            print(f"[DETECT-DEBUG]   {d['type']} conf={d['confidence']:.3f} bbox={[round(x,1) for x in d['bbox']]}", flush=True, file=_sys.stdout)
 
     # Hard cap: real football has at most 22 players + 1 ball + a few cones
     players = [d for d in yolo_detections if d["type"] == "player"]
@@ -275,7 +267,7 @@ def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DE
                 if det["type"] == "player":
                     try:
                         keypoints = pose_extractor(frame, tuple(det["bbox"]))
-                        det["keypoints"] = keypoints  # None if pose detection fails
+                        det["keypoints"] = keypoints
                     except Exception:
                         det["keypoints"] = None
 
