@@ -119,7 +119,7 @@ def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: t
             "confidence": float(max_score),
         })
     # Apply NMS to remove overlapping duplicates
-    detections = _nms(detections, iou_threshold=0.5)
+    detections = _nms(detections, iou_threshold=0.6)
     return detections
 
 def read_jersey_number(frame: np.ndarray, bbox: list[float]) -> str:
@@ -212,24 +212,26 @@ def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DE
     outputs = session.run(None, {_input_name: input_tensor})
     yolo_detections = _postprocess(outputs, confidence_threshold, frame.shape[:2])
 
-    if not yolo_detections:
-        global _motion_detector
-        if _motion_detector is None:
-            _motion_detector = MotionDetector()
-        motion_dets = _motion_detector.detect(frame)
-        # Only use motion detections with reasonable confidence
-        yolo_detections = [d for d in motion_dets if d.get("confidence", 0) > 0.3]
-        # Apply NMS to motion detections too
-        yolo_detections = _nms(yolo_detections, iou_threshold=0.4)
+    # Motion detector fallback DISABLED — it creates ghost players from
+    # background noise in overhead footage. Better to have 0 detections
+    # in a frame than fake players that fragment into ghost tracks.
+    # if not yolo_detections:
+    #     ...motion detector...
 
-    # Cap player detections to a reasonable max (football has at most ~22 players)
+    # Hard cap: real football has at most 22 players + 1 ball + a few cones
     players = [d for d in yolo_detections if d["type"] == "player"]
-    others = [d for d in yolo_detections if d["type"] != "player"]
-    if len(players) > 30:
-        # Keep only the 30 highest-confidence player detections
+    balls = [d for d in yolo_detections if d["type"] == "ball"]
+    cones = [d for d in yolo_detections if d["type"] == "cone"]
+    if len(players) > 12:
         players.sort(key=lambda d: d["confidence"], reverse=True)
-        players = players[:30]
-    yolo_detections = players + others
+        players = players[:12]
+    if len(balls) > 2:
+        balls.sort(key=lambda d: d["confidence"], reverse=True)
+        balls = balls[:2]
+    if len(cones) > 8:
+        cones.sort(key=lambda d: d["confidence"], reverse=True)
+        cones = cones[:8]
+    yolo_detections = players + balls + cones
 
     # Extract pose keypoints for each detected player (if enabled)
     if POSE_ENABLED:
