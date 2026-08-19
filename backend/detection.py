@@ -8,12 +8,19 @@ Also supports YOLO11-pose for joint keypoint extraction in a single forward pass
 """
 
 import os
+import sys
 import logging
 import cv2
 import numpy as np
 from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
+# Ensure detection logs appear in Railway stdout
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+logger.addHandler(_handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
 
 # Pose estimation can be disabled via environment variable
 POSE_ENABLED = os.environ.get("POSE_ESTIMATION_ENABLED", "true").lower() == "true"
@@ -133,7 +140,9 @@ def detect_objects(
                     detect_objects._debug_logged = 0
                 if detect_objects._debug_logged < 3:
                     detect_objects._debug_logged += 1
-                    logger.info(f"[detect] Raw YOLO output: {len(boxes)} boxes, top classes: {top5_str}")
+                    msg = f"[detect] Raw YOLO output: {len(boxes)} boxes, top classes: {top5_str}"
+                    logger.info(msg)
+                    print(msg, flush=True)
 
                 for i in range(len(boxes)):
                     cls_id = int(boxes.cls[i])
@@ -168,7 +177,9 @@ def detect_objects(
             detect_objects._debug_summary += 1
             p_count = sum(1 for d in detections if d['type'] == 'player')
             b_count = sum(1 for d in detections if d['type'] == 'ball')
-            logger.info(f"[detect] Frame filtered: {p_count} players, {b_count} balls, total={len(detections)}")
+            msg = f"[detect] Frame filtered: {p_count} players, {b_count} balls, total={len(detections)}"
+            logger.info(msg)
+            print(msg, flush=True)
 
         return detections
 
