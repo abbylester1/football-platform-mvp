@@ -22,7 +22,8 @@ def build_scene(objects: list[dict], drill_id: str, scenes_dir: str, avatar_dir:
     # Center circle
     ring = trimesh.creation.annulus(r_min=4.5, r_max=4.54, height=0.01, sections=32)
     ring.apply_translation([0, 0.005, 0])
-    ring.apply_rotation([np.pi / 2, 0, 0])
+    rot = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
+    ring.apply_transform(rot)
     ring.visual.face_colors = [1.0, 1.0, 1.0, 0.3]
     scene.add_geometry(ring)
 
