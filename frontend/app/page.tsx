@@ -9,6 +9,7 @@ interface Drill {
 
 type Stage = 'idle' | 'uploading' | 'processing' | 'complete' | 'error';
 
+const analyzeIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="6" cy="6" r="4.5"/><path d="M9.5 9.5L12.5 12.5"/></svg>;
 const frameIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><rect x="1.5" y="2" width="11" height="10" rx="1"/><path d="M5.5 5v4M8.5 5v4M1.5 6.5h11"/></svg>;
 const playerIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="4" r="1.8"/><path d="M3 12.5c0-2.2 1.8-4 4-4s4 1.8 4 4"/></svg>;
 const ballIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M2 4.5l4 1L7 2M10 9.5l-2.5-1.5L7 12"/><path d="M11 5l-3.5 1L7 2"/><path d="M12 9l-4 .5-1 3M2.5 9.5L7 9"/></svg>;
@@ -17,6 +18,7 @@ const motionIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" s
 const sceneIcon = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><rect x="1.5" y="2.5" width="5" height="4" rx="0.5"/><rect x="7.5" y="2.5" width="5" height="4" rx="0.5"/><rect x="1.5" y="7.5" width="5" height="4" rx="0.5"/><rect x="7.5" y="7.5" width="5" height="4" rx="0.5"/></svg>;
 
 const STEPS = [
+  { label: 'Analyzing Video', icon: analyzeIcon },
   { label: 'Extracting Frames', icon: frameIcon },
   { label: 'Detecting Players', icon: playerIcon },
   { label: 'Tracking Ball', icon: ballIcon },
