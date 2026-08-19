@@ -4,12 +4,15 @@ interface ProcessingAnimationProps {
   currentStep: number;
   steps: { label: string; icon: React.ReactNode }[];
   estimatedTime?: number;
+  progressPercent?: number;
+  progressLabel?: string;
+  elapsedSeconds?: number;
 }
 
-export default function ProcessingAnimation({ currentStep, steps, estimatedTime = 180 }: ProcessingAnimationProps) {
-  const elapsed = currentStep >= 0 ? currentStep * 8 + 8 : 0;
-  const remaining = Math.max(0, estimatedTime - elapsed);
-  const progress = Math.min(100, ((currentStep + 1) / steps.length) * 100);
+export default function ProcessingAnimation({ currentStep, steps, estimatedTime = 180, progressPercent = 0, progressLabel = '', elapsedSeconds = 0 }: ProcessingAnimationProps) {
+  const remaining = Math.max(0, Math.round(estimatedTime));
+  // Use real progress from backend, fallback to step-based
+  const progress = progressPercent > 0 ? progressPercent : Math.min(100, ((currentStep + 1) / steps.length) * 100);
 
   return (
     <div className="max-w-2xl mx-auto py-24 animate-fade-up">
@@ -88,17 +91,33 @@ export default function ProcessingAnimation({ currentStep, steps, estimatedTime 
           </div>
 
           {/* Time estimate */}
-          <div className="mt-6 flex items-center gap-3 text-xs text-gray-600">
-            <div className="flex items-center gap-1.5">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
-                <circle cx="6" cy="6" r="5"/>
-                <path d="M6 3v3l2 1"/>
-              </svg>
-              <span>Estimated remaining</span>
+          <div className="mt-6 space-y-2">
+            <div className="flex items-center gap-3 text-xs text-gray-600">
+              <div className="flex items-center gap-1.5">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+                  <circle cx="6" cy="6" r="5"/>
+                  <path d="M6 3v3l2 1"/>
+                </svg>
+                <span>Estimated remaining</span>
+              </div>
+              <span className="text-gray-400 font-medium">
+                {Math.floor(remaining / 60)}m {remaining % 60}s
+              </span>
             </div>
-            <span className="text-gray-400 font-medium">
-              {Math.floor(remaining / 60)}m {remaining % 60}s
-            </span>
+            {progressPercent > 0 && (
+              <div className="flex items-center gap-3 text-xs">
+                <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-full transition-all duration-1000"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <span className="text-gray-500 font-mono tabular-nums">{progress}%</span>
+              </div>
+            )}
+            {progressLabel && (
+              <span className="text-[11px] text-gray-600">{progressLabel}</span>
+            )}
           </div>
         </div>
 
@@ -160,7 +179,7 @@ export default function ProcessingAnimation({ currentStep, steps, estimatedTime 
                 fill="none"
                 stroke="rgba(74, 222, 128, 0.2)"
                 strokeWidth="2"
-                strokeDasharray={`${progress * 5.65} ${565 - progress * 5.65}`}
+                strokeDasharray={`${(progress / 100) * 565} ${565 - (progress / 100) * 565}`}
                 className="transition-all duration-1000"
               />
             </svg>

@@ -48,6 +48,9 @@ export default function Home() {
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [showDrills, setShowDrills] = useState(false);
+  const [processingStartedAt, setProcessingStartedAt] = useState<number>(0);
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -94,21 +97,30 @@ export default function Home() {
 
   const startProcessing = useCallback(async (id: string) => {
     setCurrentStep(-1);
-    const stepInterval = setInterval(() => {
-      setCurrentStep(prev => Math.min(prev + 1, STEPS.length - 1));
-    }, 8000);
+    setProcessingStartedAt(Date.now());
+    setProgressPercent(0);
+    setProgressLabel('');
 
     try {
       const res = await fetch(`/api/process/${id}`, { method: 'POST' });
-      if (!res.ok) { clearInterval(stepInterval); setError('Processing failed to start'); setStage('error'); return; }
+      if (!res.ok) { setError('Processing failed to start'); setStage('error'); return; }
 
       while (true) {
+        await new Promise(r => setTimeout(r, 2000));
         const statusRes = await fetch(`/api/process/${id}/status`);
-        if (!statusRes.ok) { await new Promise(r => setTimeout(r, 2000)); continue; }
+        if (!statusRes.ok) continue;
         const data = await statusRes.json();
+
+        // Update step and progress from backend
+        if (data.progress) {
+          setCurrentStep(data.progress.step);
+          setProgressPercent(data.progress.percent || 0);
+          setProgressLabel(data.progress.step_label || '');
+        }
+
         if (data.status === 'ready' || data.status === 'review') {
-          clearInterval(stepInterval);
           setCurrentStep(STEPS.length - 1);
+          setProgressPercent(100);
           setSceneKey(data.scene_key || null);
           await new Promise(r => setTimeout(r, 800));
           setStage('complete');
@@ -120,15 +132,12 @@ export default function Home() {
           return;
         }
         if (data.status === 'failed') {
-          clearInterval(stepInterval);
           setError('Processing failed. Please try again.');
           setStage('error');
           return;
         }
-        await new Promise(r => setTimeout(r, 2000));
       }
     } catch {
-      clearInterval(stepInterval);
       setError('Processing failed. Please try again.');
       setStage('error');
     }
@@ -160,9 +169,11 @@ export default function Home() {
     return `${m}m ${s}s`;
   };
 
-  const estimatedTotal = 180;
-  const elapsed = currentStep >= 0 ? currentStep * 8 + 8 : 0;
-  const remaining = Math.max(0, estimatedTotal - elapsed);
+  const elapsedSeconds = processingStartedAt ? Math.floor((Date.now() - processingStartedAt) / 1000) : 0;
+  // Dynamic ETA: use actual progress to estimate remaining time
+  const estimatedRemaining = progressPercent > 0
+    ? Math.max(5, Math.round((elapsedSeconds / progressPercent) * (100 - progressPercent)))
+    : Math.max(5, 180 - elapsedSeconds);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -252,7 +263,7 @@ export default function Home() {
               <div className="h-full bg-white rounded-full transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]" style={{ width: `${uploadProgress}%` }} />
             </div>
             <p className="text-sm truncate">{fileName}</p>
-            <p className="text-xs text-gray-600 mt-1">Estimated time: 2 minutes</p>
+            <p className="text-xs text-gray-600 mt-1">Uploading video...</p>
             <button onClick={cancelUpload} className="mt-4 text-xs text-gray-600 hover:text-gray-400 transition-colors">
               Cancel
             </button>
@@ -263,7 +274,10 @@ export default function Home() {
           <ProcessingAnimation
             currentStep={currentStep}
             steps={STEPS}
-            estimatedTime={180}
+            estimatedTime={estimatedRemaining}
+            progressPercent={progressPercent}
+            progressLabel={progressLabel}
+            elapsedSeconds={elapsedSeconds}
           />
         )}
 
