@@ -89,16 +89,20 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
     logger.info(f"[{drill_id}] Video file exists, size={os.path.getsize(video_path)} bytes")
     
     # === PHASE 1: Analyze the video to understand the scene ===
-    from video_analysis import analyze_video
-    scene = analyze_video(video_path)
-    logger.info(
-        f"[{drill_id}] Scene analysis: camera={scene.camera_angle} "
-        f"({scene.camera_confidence:.0%}), cones={len(scene.cone_positions)}, "
-        f"expected_players={scene.expected_players} ({scene.player_confidence:.0%}), "
-        f"drill_area={'yes' if scene.drill_polygon is not None else 'no'}, "
-        f"confidence={scene.analysis_confidence:.0%}"
-    )
-    _update_progress(drill_id, 0, "Extracting Frames", 0, scene.total_frames)
+    from video_analysis import analyze_video, SceneAnalysis
+    try:
+        scene = analyze_video(video_path)
+        logger.info(
+            f"[{drill_id}] Scene analysis: camera={scene.camera_angle} "
+            f"({scene.camera_confidence:.0%}), cones={len(scene.cone_positions)}, "
+            f"expected_players={scene.expected_players} ({scene.player_confidence:.0%}), "
+            f"drill_area={'yes' if scene.drill_polygon is not None else 'no'}, "
+            f"confidence={scene.analysis_confidence:.0%}"
+        )
+    except Exception as e:
+        logger.warning(f"[{drill_id}] Video analysis failed, using defaults: {e}")
+        scene = SceneAnalysis()
+    _update_progress(drill_id, 1, "Extracting Frames", 0, scene.total_frames)
     
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
