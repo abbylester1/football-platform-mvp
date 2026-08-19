@@ -258,11 +258,13 @@ def _build_drill_area(
     frame_height: int
 ) -> tuple[Optional[np.ndarray], Optional[tuple]]:
     """
-    Build drill area polygon from cone positions.
+    Build drill corridor polygon from cone positions.
     
-    If >= 3 cones: convex hull of cone positions
-    If < 3 cones but >= 2: expand a rectangle around the cones
-    If < 2: return None (no spatial filtering possible)
+    Football drills have cones arranged in a line forming a corridor.
+    We build a rectangular corridor around the cone line with generous margins.
+    
+    If >= 2 cones: build corridor (line + perpendicular margin)
+    If < 2 cones: return None
     """
     if len(cone_positions) < 2:
         return None, None
@@ -270,37 +272,68 @@ def _build_drill_area(
     # Convert to pixel coordinates
     pts = np.array([(cx * frame_width, cy * frame_height) for cx, cy in cone_positions], dtype=np.float32)
     
-    if len(cone_positions) >= 3:
-        # Convex hull of cone positions
-        hull = cv2.convexHull(pts)
-        # Expand hull by 40% to give generous margin
-        center = np.mean(hull, axis=0)
-        expanded = center + (hull - center) * 1.4
-        expanded = expanded.astype(np.float32)
-        
-        bbox = (
-            float(expanded[:,:,0].min()), float(expanded[:,:,1].min()),
-            float(expanded[:,:,0].max()), float(expanded[:,:,1].max())
-        )
-        return expanded, bbox
+    # Fit a line through the cone centers
+    # Use PCA to find the primary axis (the cone line direction)
+    mean_pt = np.mean(pts, axis=0)
+    centered = pts - mean_pt
     
-    # Only 2 cones: create a wide rectangle around them
-    cx1, cy1 = pts[0]
-    cx2, cy2 = pts[1]
-    margin_x = abs(cx2 - cx1) * 0.5 + frame_width * 0.1
-    margin_y = abs(cy2 - cy1) * 0.5 + frame_height * 0.1
+    if len(pts) >= 2:
+        # SVD to find the main axis
+        _, _, vt = np.linalg.svd(centered, full_matrices=False)
+        main_axis = vt[0]  # Primary direction (along the cone line)
+        perp_axis = np.array([-main_axis[1], main_axis[0]])  # Perpendicular
+    else:
+        main_axis = np.array([1.0, 0.0])
+        perp_axis = np.array([0.0, 1.0])
     
-    x1 = min(cx1, cx2) - margin_x
-    y1 = min(cy1, cy2) - margin_y
-    x2 = max(cx1, cx2) + margin_x
-    y2 = max(cy1, cy2) + margin_y
+    # Project all cones onto the main axis to find the extent
+    projections = centered @ main_axis
+    min_proj = projections.min()
+    max_proj = projections.max()
     
-    # Clamp to frame bounds
-    x1, y1 = max(0, x1), max(0, y1)
-    x2, y2 = min(frame_width, x2), min(frame_height, y2)
+    # Project onto perpendicular axis to find the width
+    perp_projections = centered @ perp_axis
+    perp_center = np.mean(perp_projections)
     
-    rect = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float32)
-    return rect, (x1, y1, x2, y2)
+    # Corridor dimensions:
+    # Length: from first cone to last cone + 50% extension on each end
+    # Width: max perpendicular spread + 200% margin (generous for player movement)
+    length_margin = (max_proj - min_proj) * 0.5
+    corridor_min = min_proj - length_margin
+    corridor_max = max_proj + length_margin
+    
+    # Width: generous — players move around cones
+    corridor_width = max(abs(perp_projections.max() - perp_projections.min()), frame_height * 0.15)
+    corridor_width = max(corridor_width, frame_height * 0.25)  # At least 25% of frame height
+    
+    # Build the corridor rectangle corners
+    corners = []
+    for proj in [corridor_min, corridor_max]:
+        for perp_offset in [-corridor_width / 2, corridor_width / 2]:
+            point = mean_pt + main_axis * proj + perp_axis * (perp_center + perp_offset)
+            corners.append(point)
+    
+    # Sort corners to form a proper polygon (clockwise from top-left)
+    corners = np.array(corners, dtype=np.float32)
+    
+    # Clamp to frame bounds with 5% margin
+    margin = frame_width * 0.05
+    corners[:, 0] = np.clip(corners[:, 0], -margin, frame_width + margin)
+    corners[:, 1] = np.clip(corners[:, 1], -margin, frame_height + margin)
+    
+    # Sort by angle from center for proper polygon ordering
+    center = np.mean(corners, axis=0)
+    angles = np.arctan2(corners[:, 1] - center[1], corners[:, 0] - center[0])
+    corners = corners[np.argsort(angles)]
+    
+    bbox = (
+        float(corners[:, 0].min()), float(corners[:, 1].min()),
+        float(corners[:, 0].max()), float(corners[:, 1].max())
+    )
+    
+    logger.info(f"[analysis] Drill corridor: {len(cone_positions)} cones, axis=({main_axis[0]:.2f},{main_axis[1]:.2f}), width={corridor_width:.0f}px")
+    
+    return corners, bbox
 
 
 def _estimate_participants(
@@ -312,9 +345,9 @@ def _estimate_participants(
     Estimate how many players are in the drill.
     
     Strategy:
-    1. For each frame, count player detections inside the drill area
-    2. Take the median count (robust to outliers)
-    3. Count how many unique detection "clusters" appear consistently
+    1. For each frame, count player detections inside the drill corridor
+    2. Cluster player positions to find unique individuals
+    3. Use the most common count across frames as the estimate
     """
     per_frame_player_counts = []
     total_detections = 0
@@ -329,7 +362,7 @@ def _estimate_participants(
                 cx = (bbox[0] + bbox[2]) / 2
                 cy = (bbox[1] + bbox[3]) / 2
                 
-                # Check if inside drill area (if available)
+                # Check if inside drill corridor (if available)
                 if drill_polygon is not None:
                     inside = cv2.pointPolygonTest(
                         drill_polygon, (float(cx), float(cy)), False
@@ -346,33 +379,44 @@ def _estimate_participants(
     if not per_frame_player_counts:
         return 0, 0.0, 0, total_detections
     
-    # Median count of players per frame
+    # Use the most common count (mode) — more robust for drills with fixed player count
+    from collections import Counter
+    count_freq = Counter(per_frame_player_counts)
+    mode_count = count_freq.most_common(1)[0][0]
     median_count = int(np.median(per_frame_player_counts))
     max_count = max(per_frame_player_counts)
     
     # Cluster player centers to estimate unique individuals
     if all_player_centers:
-        unique_players = _count_unique_players(all_player_centers)
+        unique_players = _count_unique_players(all_player_centers, grid_size=0.04)
     else:
-        unique_players = median_count
+        unique_players = mode_count
     
     # Confidence: higher when counts are consistent across frames
     if len(per_frame_player_counts) > 1:
         std_dev = np.std(per_frame_player_counts)
-        consistency = max(0, 1 - std_dev / max(median_count, 1))
+        consistency = max(0, 1 - std_dev / max(mode_count, 1))
     else:
         consistency = 0.3
     
-    # Use the more reliable estimate (cluster-based vs median)
-    if unique_players > 0 and abs(unique_players - median_count) <= 2:
-        estimate = unique_players
+    # Use the more reliable estimate
+    # For drills: the mode (most common count) is usually the true player count
+    if unique_players > 0 and mode_count > 0:
+        # Pick the smaller of mode and unique — drills have a fixed number of participants
+        estimate = min(mode_count, unique_players)
+        if estimate < 2:
+            estimate = max(mode_count, unique_players)  # At least try the larger one
         confidence = min(0.95, consistency + 0.3)
+    elif mode_count > 0:
+        estimate = mode_count
+        confidence = consistency * 0.8
     else:
-        # Prefer the cluster count but cap it
-        estimate = min(unique_players, max_count + 1)
-        confidence = consistency * 0.7
+        estimate = 0
+        confidence = 0.0
     
-    consistent_count = sum(1 for c in per_frame_player_counts if c >= median_count * 0.5)
+    consistent_count = sum(1 for c in per_frame_player_counts if c >= mode_count * 0.5)
+    
+    logger.info(f"[analysis] Player estimation: mode={mode_count}, unique={unique_players}, estimate={estimate}, total_detections={total_detections}")
     
     return estimate, confidence, consistent_count, total_detections
 

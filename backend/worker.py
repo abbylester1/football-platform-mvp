@@ -9,6 +9,7 @@ from projection import project_to_3d
 from calibration import estimate_homography, detect_cones_in_frame
 from smoothing import smooth_trajectory
 from animation import build_scene
+import numpy as np
 from database import SessionLocal, Drill, DrillStatus
 
 # Progress store from router_process — updated live for the status endpoint
@@ -139,14 +140,15 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
 
         detections = detect_objects(frame)
         
-        # === Filter: only keep detections inside the drill area ===
-        # Safety: expand polygon by 40% for margin, and if it removes ALL
-        # detections, disable filtering (bad cone detection = bad polygon).
+        # === Filter: only keep detections inside the drill corridor ===
+        # The drill corridor is built from cone positions (a line of cones forming a passage).
+        # Expand by 60% to include players moving around the cones.
+        # If filtering is too aggressive, fall back to no filtering.
         if scene.drill_polygon is not None and detections:
             import cv2 as _cv2
-            # Expand polygon center-outward by 40%
+            # Expand corridor outward by 60%
             center = np.mean(scene.drill_polygon, axis=0)
-            expanded = center + (scene.drill_polygon - center) * 1.4
+            expanded = center + (scene.drill_polygon - center) * 1.6
             expanded = expanded.astype(np.float32)
             
             filtered = []
@@ -162,8 +164,10 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
             
             # If filtering removed everything, disable it for this video
             if len(filtered) == 0 and len(detections) > 0:
-                logger.warning(f"[{drill_id}] Drill area filter removed all {len(detections)} detections — disabling spatial filter")
+                logger.warning(f"[{drill_id}] Drill corridor filter removed all {len(detections)} detections — disabling spatial filter")
             else:
+                if processed_count <= 3:
+                    logger.info(f"[{drill_id}] Corridor filter: {len(detections)} detections -> {len(filtered)} inside corridor")
                 detections = filtered
         
         tracked = track_objects(detections, frame_count)
@@ -227,16 +231,21 @@ def process_drill_sync(drill_id: str, video_path: str) -> str:
     players = {tid: dets for tid, dets in objects_by_id.items() if dets[0]["type"] == "player"}
     non_players = {tid: dets for tid, dets in objects_by_id.items() if dets[0]["type"] != "player"}
     
-    # Use expected_players from analysis, but allow 50% headroom for tracking noise
-    max_players = scene.expected_players * 2 if scene.expected_players > 0 else 8
-    max_players = max(max_players, 3)  # At least 3
-    max_players = min(max_players, 15)  # Never more than 15
+    # Use expected_players from analysis — drills typically have 2-6 participants
+    if scene.expected_players > 0:
+        max_players = scene.expected_players + 2  # Allow 2 extra for tracking noise
+    else:
+        max_players = 5  # Default: most drills have 2-5 active players
+    max_players = max(max_players, 2)  # At least 2
+    max_players = min(max_players, 10)  # Never more than 10
+    
+    logger.info(f"[{drill_id}] Player cap: max={max_players} (expected from analysis: {scene.expected_players})")
     
     if len(players) > max_players:
         sorted_pids = sorted(players.keys(), key=lambda tid: len(players[tid]), reverse=True)
         logger.info(f"[{drill_id}] Capping players from {len(players)} to {max_players} (expected: {scene.expected_players})")
         players = {tid: players[tid] for tid in sorted_pids[:max_players]}
-        logger.info(f"[{drill_id}] Capped players from {len(sorted_pids)} to 25")
+        logger.info(f"[{drill_id}] Capped players from {len(sorted_pids)} to {max_players}")
     if len(non_players) > 10:
         sorted_nids = sorted(non_players.keys(), key=lambda tid: len(non_players[tid]), reverse=True)
         non_players = {tid: non_players[tid] for tid in sorted_nids[:10]}

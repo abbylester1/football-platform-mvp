@@ -2,10 +2,16 @@ import cv2
 import numpy as np
 
 CONE_COLOR_RANGES = [
-    ((5, 80, 80), (20, 255, 255)),       # Standard orange cones
-    ((0, 100, 150), (15, 255, 255)),     # Bright orange / yellow-orange
-    ((165, 80, 80), (180, 255, 255)),    # Red-orange (wraps around HSV)
-    ((0, 60, 120), (25, 255, 255)),      # Wider orange/yellow range
+    # Yellow cones
+    ((20, 80, 80), (35, 255, 255)),      # Pure yellow
+    ((15, 60, 120), (40, 255, 255)),     # Yellow-orange (wider)
+    # Pink/red cones
+    ((140, 50, 80), (175, 255, 255)),    # Pink/magenta
+    ((0, 50, 100), (10, 255, 255)),      # Red (low hue)
+    ((165, 50, 80), (180, 255, 255)),    # Red (high hue, wraps)
+    # Orange cones (backup)
+    ((5, 80, 80), (20, 255, 255)),       # Standard orange
+    ((0, 100, 150), (15, 255, 255)),     # Bright orange
 ]
 
 def estimate_homography(cone_positions: list[tuple[float, float]], field_width: float = 105.0, field_height: float = 68.0):
@@ -58,10 +64,18 @@ def detect_cones_in_frame(
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_large, iterations=2)
 
     # Also look for bright saturated objects (cones are often very bright)
-    # S: > 100, V: > 150 catches bright cones even if hue shifts
-    bright_mask = cv2.inRange(hsv, np.array([0, 100, 150], dtype=np.uint8),
-                                  np.array([30, 255, 255], dtype=np.uint8))
-    mask = cv2.bitwise_or(mask, bright_mask)
+    # Yellow-orange range
+    bright_mask1 = cv2.inRange(hsv, np.array([15, 100, 150], dtype=np.uint8),
+                                   np.array([35, 255, 255], dtype=np.uint8))
+    # Pink/magenta range
+    bright_mask2 = cv2.inRange(hsv, np.array([140, 100, 150], dtype=np.uint8),
+                                   np.array([175, 255, 255], dtype=np.uint8))
+    # Red range
+    bright_mask3 = cv2.inRange(hsv, np.array([0, 100, 150], dtype=np.uint8),
+                                   np.array([10, 255, 255], dtype=np.uint8))
+    mask = cv2.bitwise_or(mask, bright_mask1)
+    mask = cv2.bitwise_or(mask, bright_mask2)
+    mask = cv2.bitwise_or(mask, bright_mask3)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_small, iterations=1)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
