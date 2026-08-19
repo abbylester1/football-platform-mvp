@@ -49,11 +49,21 @@ COCO_CLASS_MAP = {
     32: "ball",
 }
 
-def _preprocess(frame: np.ndarray) -> np.ndarray:
-    img = cv2.resize(frame, (640, 640))
-    img = img[:, :, ::-1].transpose(2, 0, 1)
+def _preprocess(frame: np.ndarray) -> tuple:
+    """Preprocess frame for YOLO with letterboxing to preserve aspect ratio."""
+    h, w = frame.shape[:2]
+    target = 640
+    scale = min(target / w, target / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    # Pad with gray (114) to maintain aspect ratio
+    canvas = np.full((target, target, 3), 114, dtype=np.uint8)
+    dx = (target - new_w) // 2
+    dy = (target - new_h) // 2
+    canvas[dy:dy + new_h, dx:dx + new_w] = resized
+    img = canvas[:, :, ::-1].transpose(2, 0, 1)
     img = np.ascontiguousarray(img).astype(np.float32) / 255.0
-    return np.expand_dims(img, axis=0)
+    return np.expand_dims(img, axis=0), scale, (dx, dy)
 
 def _nms(detections: List[Dict], iou_threshold: float = 0.5) -> List[Dict]:
     """Non-Maximum Suppression: remove overlapping boxes of the same type.
@@ -99,7 +109,8 @@ def _nms(detections: List[Dict], iou_threshold: float = 0.5) -> List[Dict]:
     return result
 
 
-def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: tuple) -> List[Dict]:
+def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: tuple, scale: float = 1.0, pad: tuple = (0, 0)) -> List[Dict]:
+    """Postprocess YOLO output with letterbox-aware coordinate remapping."""
     arr = outputs[0][0]
     boxes = arr[:4, :].T
     scores = arr[4:, :].T
@@ -117,10 +128,11 @@ def _postprocess(outputs: np.ndarray, confidence_threshold: float, orig_shape: t
         if mapped_type is None:
             continue
         x, y, w, h = boxes[i]
-        x1 = (x - w / 2) * orig_shape[1] / 640
-        y1 = (y - h / 2) * orig_shape[0] / 640
-        x2 = (x + w / 2) * orig_shape[1] / 640
-        y2 = (y + h / 2) * orig_shape[0] / 640
+        # Remap from letterboxed 640x640 coordinates back to original frame
+        x1 = ((x - w / 2) - pad[0]) / scale
+        y1 = ((y - h / 2) - pad[1]) / scale
+        x2 = ((x + w / 2) - pad[0]) / scale
+        y2 = ((y + h / 2) - pad[1]) / scale
         detections.append({
             "type": mapped_type,
             "bbox": [x1, y1, x2, y2],
@@ -227,16 +239,16 @@ def detect_objects(frame: Optional[np.ndarray], confidence_threshold: float = DE
         return []
 
     session = _get_session()
-    input_tensor = _preprocess(frame)
+    input_tensor, scale, (pad_x, pad_y) = _preprocess(frame)
     outputs = session.run(None, {_input_name: input_tensor})
-    yolo_detections = _postprocess(outputs, confidence_threshold, frame.shape[:2])
+    yolo_detections = _postprocess(outputs, confidence_threshold, frame.shape[:2], scale, (pad_x, pad_y))
     
     # Debug: log first few frames to diagnose detection issues
     if not hasattr(detect_objects, '_frame_count'):
         detect_objects._frame_count = 0
     detect_objects._frame_count += 1
     if detect_objects._frame_count <= 3:
-        print(f"[DETECT-DEBUG] frame #{detect_objects._frame_count}: input={input_tensor.shape}, output={outputs[0].shape if outputs else 'none'}, raw_dets={len(yolo_detections)}", flush=True, file=_sys.stdout)
+        print(f"[DETECT-DEBUG] frame #{detect_objects._frame_count}: input={input_tensor.shape}, scale={scale:.3f}, pad=({pad_x},{pad_y}), output={outputs[0].shape if outputs else 'none'}, raw_dets={len(yolo_detections)}", flush=True, file=_sys.stdout)
         for d in yolo_detections[:5]:
             print(f"[DETECT-DEBUG]   {d['type']} conf={d['confidence']:.3f} bbox={[round(x,1) for x in d['bbox']]}", flush=True, file=_sys.stdout)
 
